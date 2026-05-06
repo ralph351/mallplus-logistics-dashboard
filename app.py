@@ -72,12 +72,20 @@ st.markdown("""
 def load_data():
     """Load mock data from Google Sheets."""
     try:
-        # Load from workspace credentials
-        creds_path = os.path.expanduser("~/.openclaw/workspace-logistics/secrets/google-sa-key.json")
-        creds = service_account.Credentials.from_service_account_file(
-            creds_path,
-            scopes=['https://www.googleapis.com/auth/spreadsheets.readonly']
-        )
+        # Try to load from Streamlit secrets first (for Cloud deployment)
+        try:
+            credentials_dict = st.secrets["google_credentials"]
+            creds = service_account.Credentials.from_service_account_info(
+                credentials_dict,
+                scopes=['https://www.googleapis.com/auth/spreadsheets.readonly']
+            )
+        except (KeyError, FileNotFoundError):
+            # Fallback to local file (for local development)
+            creds_path = os.path.expanduser("~/.openclaw/workspace-logistics/secrets/google-sa-key.json")
+            creds = service_account.Credentials.from_service_account_file(
+                creds_path,
+                scopes=['https://www.googleapis.com/auth/spreadsheets.readonly']
+            )
         
         sheets = build('sheets', 'v4', credentials=creds)
         sheet_id = "1go2cqyqw5ACx-vki974lXV_10chTqTV67BB_rK1WN8c"
