@@ -93,16 +93,25 @@ def load_data():
         # Use the new 140-field simulated data sheet
         sheet_id = "1L5qyfPzh2fmiR6-F1TKB2Op03xMzyBn3XmqaTpLOU_A"
         
-        # Fetch Simulated Data sheet (140 fields, A:EJ)
+        # Fetch Simulated Data sheet (dynamic range to handle any column count)
         result = sheets.spreadsheets().values().get(
             spreadsheetId=sheet_id,
-            range="'Simulated Data'!A1:EJ1000"
+            range="'Simulated Data'!A1:ZZ1000"
         ).execute()
         
         values = result.get('values', [])
         
         if len(values) > 1:
-            df = pd.DataFrame(values[1:], columns=values[0])
+            headers = values[0]
+            data = values[1:]
+            
+            # Ensure all rows have same number of columns as header
+            for row in data:
+                while len(row) < len(headers):
+                    row.append('')  # Pad missing columns
+                row = row[:len(headers)]  # Trim excess columns
+            
+            df = pd.DataFrame(data, columns=headers)
             return df
         else:
             st.error("No data found in sheet")
@@ -220,13 +229,18 @@ if df.empty:
     st.info("For Streamlit Cloud: Add google_credentials to Secrets\nFor Local Dev: Ensure google-sa-key.json exists")
     st.stop()
 
-# Convert timestamp columns (if they exist)
-timestamp_cols = [col for col in df.columns if 'ts' in col.lower()]
-for col in timestamp_cols:
-    try:
-        df[col] = pd.to_datetime(df[col], errors='coerce')
-    except:
-        pass
+# Convert numeric and timestamp columns safely
+for col in df.columns:
+    if 'ts' in col.lower():
+        try:
+            df[col] = pd.to_datetime(df[col], errors='coerce')
+        except:
+            pass
+    elif col in ['package_weight', 'package_value', 'actual_shipping_fee', 'estimated_shipping_fee', 'paid_value', 'item_count']:
+        try:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        except:
+            pass
 
 # Calculate KPIs
 try:
