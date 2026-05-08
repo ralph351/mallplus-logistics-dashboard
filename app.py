@@ -74,19 +74,29 @@ st.markdown("""
 def load_data():
     """Load 140-field data from Google Sheets."""
     try:
-        creds_path = os.path.expanduser("~/.openclaw/workspace-logistics/secrets/google-sa-key.json")
-        creds = service_account.Credentials.from_service_account_file(
-            creds_path,
-            scopes=['https://www.googleapis.com/auth/spreadsheets.readonly']
-        )
+        # Try Streamlit Secrets first (for Cloud), fallback to local file (for dev)
+        try:
+            credentials_dict = st.secrets["google_credentials"]
+            creds = service_account.Credentials.from_service_account_info(
+                credentials_dict,
+                scopes=['https://www.googleapis.com/auth/spreadsheets.readonly']
+            )
+        except (KeyError, FileNotFoundError):
+            # Fallback to local file for development
+            creds_path = os.path.expanduser("~/.openclaw/workspace-logistics/secrets/google-sa-key.json")
+            creds = service_account.Credentials.from_service_account_file(
+                creds_path,
+                scopes=['https://www.googleapis.com/auth/spreadsheets.readonly']
+            )
         
         sheets = build('sheets', 'v4', credentials=creds)
+        # Use the new 140-field simulated data sheet
         sheet_id = "1L5qyfPzh2fmiR6-F1TKB2Op03xMzyBn3XmqaTpLOU_A"
         
-        # Fetch Simulated Data sheet
+        # Fetch Simulated Data sheet (140 fields, A:EJ)
         result = sheets.spreadsheets().values().get(
             spreadsheetId=sheet_id,
-            range="'Simulated Data'!A:EJ"
+            range="'Simulated Data'!A1:EJ1000"
         ).execute()
         
         values = result.get('values', [])
@@ -99,7 +109,8 @@ def load_data():
             return pd.DataFrame()
     
     except Exception as e:
-        st.error(f"Error loading data: {e}")
+        st.error(f"❌ Error loading data: {str(e)}")
+        st.info("💡 Tip: If running on Streamlit Cloud, add Google credentials to Secrets (Settings → Secrets)")
         return pd.DataFrame()
 
 # ============================================================================
@@ -110,16 +121,30 @@ def calculate_kpis(df):
     """Calculate key performance indicators."""
     total = len(df)
     
-    pickup_compliance = len(df[df['pickup_sla_compliance'] == 'pass']) / total * 100 if total > 0 else 0
-    forward_compliance = len(df[df['forward_delivery_compliance'] == 'pass']) / total * 100 if total > 0 else 0
+    try:
+        pickup_compliance = len(df[df['pickup_sla_compliance'] == 'pass']) / total * 100 if total > 0 else 0
+    except:
+        pickup_compliance = 0
+    
+    try:
+        forward_compliance = len(df[df['forward_delivery_compliance'] == 'pass']) / total * 100 if total > 0 else 0
+    except:
+        forward_compliance = 0
     
     try:
         avg_shipping_fee = pd.to_numeric(df['actual_shipping_fee'], errors='coerce').mean()
     except:
         avg_shipping_fee = 0
     
-    sla_breaches = len(df[df['forward_delivery_compliance'] == 'fail'])
-    delivered = len(df[df['final_status'] == 'DELIVERED'])
+    try:
+        sla_breaches = len(df[df['forward_delivery_compliance'] == 'fail'])
+    except:
+        sla_breaches = 0
+    
+    try:
+        delivered = len(df[df['final_status'] == 'DELIVERED'])
+    except:
+        delivered = 0
     
     return {
         'total_parcels': total,
@@ -191,16 +216,24 @@ st.markdown("**Real-time J&T Logistics Monitoring** | 500 Parcels | April 1-7, 2
 df = load_data()
 
 if df.empty:
-    st.error("No data available. Please check the data source.")
+    st.error("❌ No data available. Please check the data source.")
+    st.info("For Streamlit Cloud: Add google_credentials to Secrets\nFor Local Dev: Ensure google-sa-key.json exists")
     st.stop()
 
-# Convert timestamp columns
+# Convert timestamp columns (if they exist)
 timestamp_cols = [col for col in df.columns if 'ts' in col.lower()]
 for col in timestamp_cols:
-    df[col] = pd.to_datetime(df[col], errors='coerce')
+    try:
+        df[col] = pd.to_datetime(df[col], errors='coerce')
+    except:
+        pass
 
 # Calculate KPIs
-kpis = calculate_kpis(df)
+try:
+    kpis = calculate_kpis(df)
+except Exception as e:
+    st.error(f"Error calculating KPIs: {e}")
+    kpis = {}
 
 # ============================================================================
 # TABS
