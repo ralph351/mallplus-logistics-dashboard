@@ -1,5 +1,7 @@
-streamlit
-pandas
-plotly
-google-auth-oauthlib
-google-api-python-client
+streamlit==1.57.0
+pandas==3.0.2
+plotly==6.7.0
+google-auth==2.52.0
+google-auth-oauthlib==1.4.0
+google-api-python-client==2.196.0
+numpy==2.4.4
