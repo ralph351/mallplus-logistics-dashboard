@@ -1,6 +1,7 @@
 """
-MallPlus Logistics Dashboard - Enhanced Layout v2.1
-Professional analytics dashboard with monthly OKR table and performance charts
+MallPlus Logistics Dashboard - Professional Multi-Dimensional Analytics v3.0
+Comprehensive KPI dashboard with independent timestamp filters, time granularity,
+and section-based organization (Network, Cost, Operations, Breach, Lost & Damaged)
 """
 
 import streamlit as st
@@ -24,49 +25,11 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ============================================================================
-# STYLING
-# ============================================================================
-
-st.markdown("""
-<style>
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 20px;
-        border-radius: 10px;
-        color: white;
-        text-align: center;
-    }
-    .metric-value {
-        font-size: 32px;
-        font-weight: bold;
-        margin: 10px 0;
-    }
-    .metric-label {
-        font-size: 14px;
-        opacity: 0.9;
-    }
-    .status-pass {
-        color: #10b981;
-        font-weight: bold;
-    }
-    .status-fail {
-        color: #ef4444;
-        font-weight: bold;
-    }
-    .section-header {
-        font-size: 18px;
-        font-weight: bold;
-        margin-top: 20px;
-        margin-bottom: 10px;
-        border-bottom: 2px solid #667eea;
-        padding-bottom: 10px;
-    }
-</style>
-""", unsafe_allow_html=True)
+st.title("🚚 MallPlus Logistics Dashboard v3.0")
+st.markdown("**Professional Multi-Dimensional Analytics** | Last Updated: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S GMT+8"))
 
 # ============================================================================
-# DATA LOADING (CACHED)
+# DATA LOADING
 # ============================================================================
 
 @st.cache_data(ttl=300)
@@ -107,324 +70,352 @@ def load_data():
             df = pd.DataFrame(data, columns=headers)
             return df
         else:
-            st.error("No data found in sheet")
+            st.error("No data found")
             return pd.DataFrame()
     
     except Exception as e:
-        st.error(f"❌ Error loading data: {str(e)}")
+        st.error(f"Error loading data: {str(e)}")
         return pd.DataFrame()
 
 # ============================================================================
-# HELPER FUNCTIONS
+# DATA PREP & FILTERING
 # ============================================================================
 
-def calculate_kpis(df):
-    """Calculate key performance indicators."""
-    total = len(df)
+def prepare_data(df):
+    """Convert columns and create helper fields."""
+    timestamp_cols = ['order_create_ts', 'lvl1_REQUEST_FOR_HANDOVER_ts', 'lvl1_IN_TRANSIT_ts', 'lvl1_final_status_ts', 'lvl2_first_attempt_ts', 'domestic_delivered_ts']
     
-    try:
-        pickup_compliance = len(df[df['pickup_sla_compliance'] == 'pass']) / total * 100 if total > 0 else 0
-    except:
-        pickup_compliance = 0
+    for col in timestamp_cols:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], errors='coerce')
     
-    try:
-        forward_compliance = len(df[df['forward_delivery_compliance'] == 'pass']) / total * 100 if total > 0 else 0
-    except:
-        forward_compliance = 0
+    # Lead time calculations (in days)
+    if 'order_create_ts' in df.columns and 'lvl1_REQUEST_FOR_HANDOVER_ts' in df.columns:
+        df['oc_to_rfh_days'] = (df['lvl1_REQUEST_FOR_HANDOVER_ts'] - df['order_create_ts']).dt.total_seconds() / 86400
     
-    try:
-        avg_shipping_fee = pd.to_numeric(df['actual_shipping_fee'], errors='coerce').mean()
-    except:
-        avg_shipping_fee = 0
+    if 'order_create_ts' in df.columns and 'lvl2_first_attempt_ts' in df.columns:
+        df['oc_to_fa_days'] = (df['lvl2_first_attempt_ts'] - df['order_create_ts']).dt.total_seconds() / 86400
     
-    try:
-        delivered = len(df[df['final_status'] == 'DELIVERED'])
-    except:
-        delivered = 0
+    if 'lvl1_REQUEST_FOR_HANDOVER_ts' in df.columns and 'lvl2_first_attempt_ts' in df.columns:
+        df['rfh_to_fa_days'] = (df['lvl2_first_attempt_ts'] - df['lvl1_REQUEST_FOR_HANDOVER_ts']).dt.total_seconds() / 86400
     
-    try:
-        failed_delivery = len(df[df['final_status'].isin(['FAILED', 'RTS'])])
-    except:
-        failed_delivery = 0
-    
-    try:
-        rts = len(df[df['final_status'] == 'RTS'])
-    except:
-        rts = 0
-    
-    try:
-        damaged = len(df[df['final_status'] == 'DAMAGED'])
-    except:
-        damaged = 0
-    
-    try:
-        lost = len(df[df['final_status'] == 'LOST'])
-    except:
-        lost = 0
-    
-    return {
-        'total_parcels': total,
-        'delivered': delivered,
-        'pickup_compliance': round(pickup_compliance, 1),
-        'forward_compliance': round(forward_compliance, 1),
-        'cpp': round(avg_shipping_fee, 2),
-        'failed_delivery_count': failed_delivery,
-        'rts_count': rts,
-        'damaged_count': damaged,
-        'lost_count': lost,
-        'failed_delivery_pct': round(failed_delivery / total * 100, 1) if total > 0 else 0,
-        'rts_pct': round(rts / total * 100, 1) if total > 0 else 0,
-        'damaged_pct': round(damaged / total * 100, 1) if total > 0 else 0,
-        'lost_pct': round(lost / total * 100, 1) if total > 0 else 0,
-    }
+    return df
 
-def get_monthly_okr_table(df):
-    """Get monthly OKR summary table."""
-    try:
-        df['order_date'] = pd.to_datetime(df['order_create_ts'], errors='coerce')
-        df['month'] = df['order_date'].dt.to_period('M')
-    except:
-        return pd.DataFrame()
+def apply_filters(df, oc_dates, rfh_dates, transit_dates, final_dates, granularity, three_pl):
+    """Apply multi-dimensional filters to dataframe."""
+    df_filtered = df.copy()
     
-    monthly_stats = df.groupby('month').agg({
-        'tracking_number': 'count',
-        'final_status': lambda x: (x == 'DELIVERED').sum(),
-        'forward_delivery_compliance': lambda x: (x == 'pass').sum() / len(x) * 100 if len(x) > 0 else 0,
-        'pickup_sla_compliance': lambda x: (x == 'pass').sum() / len(x) * 100 if len(x) > 0 else 0,
-        'actual_shipping_fee': 'mean',
-        'final_status': lambda x: (x.isin(['FAILED', 'RTS'])).sum() / len(x) * 100,
-    }).round(2)
+    # 3PL filter
+    if three_pl and three_pl != "All 3PLs":
+        df_filtered = df_filtered[df_filtered['3pl_name'] == three_pl]
     
-    monthly_stats.columns = ['Delivered Volume', 'Forward SLA %', 'Pickup SLA %', 'CPP (₱)', 'Failed Delivery %']
+    # Date range filters (AND logic)
+    if oc_dates:
+        oc_start, oc_end = pd.to_datetime(oc_dates[0]), pd.to_datetime(oc_dates[1]) + timedelta(days=1)
+        df_filtered = df_filtered[(df_filtered['order_create_ts'] >= oc_start) & (df_filtered['order_create_ts'] < oc_end)]
     
-    # Recalculate to fix issue
-    monthly_stats = df.groupby('month').agg({
-        'tracking_number': 'count',
-    })
-    monthly_stats.columns = ['Total Volume']
+    if rfh_dates:
+        rfh_start, rfh_end = pd.to_datetime(rfh_dates[0]), pd.to_datetime(rfh_dates[1]) + timedelta(days=1)
+        df_filtered = df_filtered[(df_filtered['lvl1_REQUEST_FOR_HANDOVER_ts'] >= rfh_start) & (df_filtered['lvl1_REQUEST_FOR_HANDOVER_ts'] < rfh_end)]
     
-    delivered = df.groupby('month').apply(lambda x: (x['final_status'] == 'DELIVERED').sum())
-    forward_sla = df.groupby('month').apply(lambda x: (x['forward_delivery_compliance'] == 'pass').sum() / len(x) * 100 if len(x) > 0 else 0)
-    pickup_sla = df.groupby('month').apply(lambda x: (x['pickup_sla_compliance'] == 'pass').sum() / len(x) * 100 if len(x) > 0 else 0)
-    cpp = df.groupby('month')['actual_shipping_fee'].apply(lambda x: pd.to_numeric(x, errors='coerce').mean())
-    failed_pct = df.groupby('month').apply(lambda x: (x['final_status'].isin(['FAILED', 'RTS'])).sum() / len(x) * 100 if len(x) > 0 else 0)
-    rts_pct = df.groupby('month').apply(lambda x: (x['final_status'] == 'RTS').sum() / len(x) * 100 if len(x) > 0 else 0)
+    if transit_dates:
+        transit_start, transit_end = pd.to_datetime(transit_dates[0]), pd.to_datetime(transit_dates[1]) + timedelta(days=1)
+        df_filtered = df_filtered[(df_filtered['lvl1_IN_TRANSIT_ts'] >= transit_start) & (df_filtered['lvl1_IN_TRANSIT_ts'] < transit_end)]
     
-    monthly_stats['Delivered Volume'] = delivered
-    monthly_stats['Forward SLA %'] = forward_sla.round(1)
-    monthly_stats['Pickup SLA %'] = pickup_sla.round(1)
-    monthly_stats['CPP (₱)'] = cpp.round(2)
-    monthly_stats['Failed Delivery %'] = failed_pct.round(1)
-    monthly_stats['RTS %'] = rts_pct.round(1)
+    if final_dates:
+        final_start, final_end = pd.to_datetime(final_dates[0]), pd.to_datetime(final_dates[1]) + timedelta(days=1)
+        df_filtered = df_filtered[(df_filtered['lvl1_final_status_ts'] >= final_start) & (df_filtered['lvl1_final_status_ts'] < final_end)]
     
-    return monthly_stats
+    return df_filtered
+
+def get_time_column(anchor_ts, granularity):
+    """Get appropriate time grouping column based on granularity."""
+    if granularity == "Daily":
+        return anchor_ts.dt.date
+    elif granularity == "Weekly":
+        return anchor_ts.dt.to_period('W')
+    elif granularity == "Monthly":
+        return anchor_ts.dt.to_period('M')
+    else:
+        return anchor_ts.dt.date
 
 # ============================================================================
-# MAIN APP
+# LOAD & PREPARE DATA
 # ============================================================================
 
-st.title("🚚 MallPlus Logistics Dashboard")
-st.markdown("**Real-time J&T Logistics Monitoring** | Last Updated: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-
-# Load data
 df = load_data()
-
 if df.empty:
-    st.error("❌ No data available.")
     st.stop()
 
-# Convert columns
-for col in df.columns:
-    if 'ts' in col.lower():
-        try:
-            df[col] = pd.to_datetime(df[col], errors='coerce')
-        except:
-            pass
-    elif col in ['package_weight', 'actual_shipping_fee', 'estimated_shipping_fee']:
-        try:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-        except:
-            pass
-
-kpis = calculate_kpis(df)
+df = prepare_data(df)
 
 # ============================================================================
 # FILTER ROW
 # ============================================================================
 
-st.markdown("### 📊 Filters & Time Dimension")
+st.markdown("### 📊 Filters & Dimensions")
 
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4, col5, col6 = st.columns(6)
 
 with col1:
-    venture = st.selectbox("3PL Partner", df['3pl_name'].unique() if '3pl_name' in df.columns else ['J&T'])
+    three_pl = st.selectbox(
+        "3PL Partner",
+        ["All 3PLs"] + list(df['3pl_name'].dropna().unique()),
+        help="Select 3PL or view all"
+    )
 
 with col2:
-    date_range = st.date_input("Date Range", [datetime.now() - timedelta(days=30), datetime.now()])
+    oc_dates = st.date_input(
+        "Order Create Date",
+        value=[],
+        max_value=datetime.now().date(),
+        help="Leave blank for all dates"
+    )
+    oc_dates = tuple(oc_dates) if len(oc_dates) == 2 else None
 
 with col3:
-    granularity = st.radio("Time Granularity", ["Daily", "Weekly", "Monthly"], horizontal=True)
+    rfh_dates = st.date_input(
+        "Request Handover Date",
+        value=[],
+        max_value=datetime.now().date(),
+        help="When seller marked ready"
+    )
+    rfh_dates = tuple(rfh_dates) if len(rfh_dates) == 2 else None
 
 with col4:
-    st.empty()
-
-st.divider()
-
-# Filter data by venture
-df_filtered = df[df['3pl_name'] == venture] if '3pl_name' in df.columns else df
-
-# ============================================================================
-# MONTHLY OKR TABLE
-# ============================================================================
-
-st.markdown("### 📈 Monthly OKR Summary")
-
-monthly_table = get_monthly_okr_table(df_filtered)
-
-if not monthly_table.empty:
-    st.dataframe(monthly_table, width="stretch", use_container_width=True)
-else:
-    st.info("No monthly data available")
-
-st.divider()
-
-# ============================================================================
-# CHARTS - ROW 1
-# ============================================================================
-
-st.markdown("### 📉 Performance Charts")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    # Delivery Volume Trend
-    try:
-        df_filtered['order_date'] = pd.to_datetime(df_filtered['order_create_ts'], errors='coerce')
-        daily_volume = df_filtered.groupby(df_filtered['order_date'].dt.date).size()
-        
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=daily_volume.index, y=daily_volume.values, mode='lines+markers', name='Actual'))
-        fig.add_hline(y=daily_volume.mean(), line_dash="dash", line_color="red", annotation_text="Target")
-        fig.update_layout(title="Delivery Volume Trend", xaxis_title="Date", yaxis_title="Volume", height=350)
-        st.plotly_chart(fig, use_container_width=True)
-    except:
-        st.info("Volume data unavailable")
-
-with col2:
-    # Forward SLA Compliance Trend
-    try:
-        daily_sla = df_filtered.groupby(df_filtered['order_date'].dt.date).apply(
-            lambda x: (x['forward_delivery_compliance'] == 'pass').sum() / len(x) * 100
-        )
-        
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=daily_sla.index, y=daily_sla.values, mode='lines+markers', name='Actual'))
-        fig.add_hline(y=92, line_dash="dash", line_color="red", annotation_text="Target (92%)")
-        fig.update_layout(title="Forward SLA Compliance %", xaxis_title="Date", yaxis_title="Compliance %", height=350)
-        st.plotly_chart(fig, use_container_width=True)
-    except:
-        st.info("SLA data unavailable")
-
-# ============================================================================
-# CHARTS - ROW 2
-# ============================================================================
-
-col1, col2 = st.columns(2)
-
-with col1:
-    # Pickup Compliance Trend
-    try:
-        daily_pickup = df_filtered.groupby(df_filtered['order_date'].dt.date).apply(
-            lambda x: (x['pickup_sla_compliance'] == 'pass').sum() / len(x) * 100
-        )
-        
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=daily_pickup.index, y=daily_pickup.values, mode='lines+markers', name='Actual'))
-        fig.add_hline(y=95, line_dash="dash", line_color="red", annotation_text="Target (95%)")
-        fig.update_layout(title="Pickup Compliance %", xaxis_title="Date", yaxis_title="Compliance %", height=350)
-        st.plotly_chart(fig, use_container_width=True)
-    except:
-        st.info("Pickup data unavailable")
-
-with col2:
-    # CPP Trend
-    try:
-        daily_cpp = df_filtered.groupby(df_filtered['order_date'].dt.date)['actual_shipping_fee'].apply(
-            lambda x: pd.to_numeric(x, errors='coerce').mean()
-        )
-        
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=daily_cpp.index, y=daily_cpp.values, mode='lines+markers', name='Actual'))
-        fig.add_hline(y=81.04, line_dash="dash", line_color="red", annotation_text="Target (₱81.04)")
-        fig.update_layout(title="Cost Per Parcel (CPP)", xaxis_title="Date", yaxis_title="Cost (₱)", height=350)
-        st.plotly_chart(fig, use_container_width=True)
-    except:
-        st.info("Cost data unavailable")
-
-st.divider()
-
-# ============================================================================
-# CHARTS - ROW 3
-# ============================================================================
-
-col1, col2 = st.columns(2)
-
-with col1:
-    # Failed Delivery %
-    try:
-        daily_fd = df_filtered.groupby(df_filtered['order_date'].dt.date).apply(
-            lambda x: (x['final_status'].isin(['FAILED', 'RTS'])).sum() / len(x) * 100
-        )
-        
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=daily_fd.index, y=daily_fd.values, mode='lines+markers', name='Actual', line=dict(color='#ef4444')))
-        fig.add_hline(y=5, line_dash="dash", line_color="orange", annotation_text="Target (5%)")
-        fig.update_layout(title="Failed Delivery %", xaxis_title="Date", yaxis_title="FD %", height=350)
-        st.plotly_chart(fig, use_container_width=True)
-    except:
-        st.info("FD data unavailable")
-
-with col2:
-    # Regional Performance
-    try:
-        region_perf = df_filtered.groupby('destination_region').apply(
-            lambda x: (x['forward_delivery_compliance'] == 'pass').sum() / len(x) * 100
-        ).sort_values(ascending=False)
-        
-        fig = px.bar(
-            x=region_perf.index,
-            y=region_perf.values,
-            title="Forward SLA by Region",
-            labels={'x': 'Region', 'y': 'Compliance %'},
-            height=350
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    except:
-        st.info("Regional data unavailable")
-
-st.divider()
-
-# ============================================================================
-# SUMMARY METRICS
-# ============================================================================
-
-st.markdown("### 📊 Current Period Summary")
-
-col1, col2, col3, col4, col5 = st.columns(5)
-
-with col1:
-    st.metric("Total Parcels", kpis['total_parcels'])
-
-with col2:
-    st.metric("Delivered", kpis['delivered'])
-
-with col3:
-    st.metric("Forward SLA", f"{kpis['forward_compliance']}%")
-
-with col4:
-    st.metric("Pickup SLA", f"{kpis['pickup_compliance']}%")
+    transit_dates = st.date_input(
+        "In Transit Date",
+        value=[],
+        max_value=datetime.now().date(),
+        help="When 3PL received"
+    )
+    transit_dates = tuple(transit_dates) if len(transit_dates) == 2 else None
 
 with col5:
-    st.metric("CPP", f"₱{kpis['cpp']:.2f}")
+    final_dates = st.date_input(
+        "Final Status Date",
+        value=[],
+        max_value=datetime.now().date(),
+        help="When parcel completed"
+    )
+    final_dates = tuple(final_dates) if len(final_dates) == 2 else None
 
-st.caption(f"Dashboard version 2.1 | Last refresh: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+with col6:
+    granularity = st.radio(
+        "Time Granularity",
+        ["Daily", "Weekly", "Monthly"],
+        horizontal=True,
+        help="Grouping for trends"
+    )
+
+st.divider()
+
+# Apply filters
+df_filtered = apply_filters(df, oc_dates, rfh_dates, transit_dates, final_dates, granularity, three_pl)
+
+if df_filtered.empty:
+    st.warning("No data matches selected filters")
+    st.stop()
+
+# ============================================================================
+# SECTION 1: NETWORK & ALLOCATION
+# ============================================================================
+
+st.markdown("## 1️⃣ Network & Allocation")
+
+col1, col2, col3 = st.columns(3)
+
+# 1a. Final Status Volume Completion
+try:
+    total_orders = len(df_filtered)
+    completed_orders = len(df_filtered[df_filtered['final_status'].notna()])
+    completion_pct = (completed_orders / total_orders * 100) if total_orders > 0 else 0
+    
+    with col1:
+        st.metric("Final Status Volume Completion %", f"{completion_pct:.1f}%")
+except:
+    with col1:
+        st.metric("Final Status Volume Completion %", "N/A")
+
+# 1b. Total Volume
+try:
+    with col2:
+        st.metric("Total Volume", len(df_filtered))
+except:
+    with col2:
+        st.metric("Total Volume", "N/A")
+
+# 1c. Control Share per 3PL
+try:
+    with col3:
+        if three_pl == "All 3PLs":
+            share_data = df_filtered['3pl_name'].value_counts()
+            st.metric("3PL Share (Top)", f"{share_data.index[0]}: {share_data.values[0]}")
+        else:
+            st.metric("Selected 3PL Volume", len(df_filtered))
+except:
+    with col3:
+        st.metric("Control Share", "N/A")
+
+st.divider()
+
+# ============================================================================
+# SECTION 2: COST
+# ============================================================================
+
+st.markdown("## 2️⃣ Cost")
+
+try:
+    cpp = pd.to_numeric(df_filtered['actual_shipping_fee'], errors='coerce').mean()
+    
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.metric("Cost Per Parcel (₱)", f"₱{cpp:.2f}", delta="vs target ₱81.04")
+    
+    with col2:
+        # CPP trend by final_status_ts
+        if 'lvl1_final_status_ts' in df_filtered.columns:
+            daily_cpp = df_filtered.groupby(get_time_column(df_filtered['lvl1_final_status_ts'], granularity))['actual_shipping_fee'].apply(
+                lambda x: pd.to_numeric(x, errors='coerce').mean()
+            )
+            
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=[str(i) for i in daily_cpp.index], y=daily_cpp.values, mode='lines+markers', name='CPP'))
+            fig.add_hline(y=81.04, line_dash="dash", line_color="red", annotation_text="Target")
+            fig.update_layout(title="CPP Trend", height=300, showlegend=False)
+            st.plotly_chart(fig, width="stretch")
+except Exception as e:
+    st.info("Cost data unavailable")
+
+st.divider()
+
+# ============================================================================
+# SECTION 3: OPERATIONS
+# ============================================================================
+
+st.markdown("## 3️⃣ Operations")
+
+# 3a. Pickup Compliance (anchored to lvl1_REQUEST_FOR_HANDOVER_ts)
+try:
+    if 'lvl1_REQUEST_FOR_HANDOVER_ts' in df_filtered.columns:
+        pickup_comp = (df_filtered['pickup_sla_compliance'] == 'pass').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
+        
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            st.metric("3a. Pickup Compliance %", f"{pickup_comp:.1f}%", delta="vs target 95%")
+        
+        with col2:
+            daily_pickup = df_filtered.groupby(get_time_column(df_filtered['lvl1_REQUEST_FOR_HANDOVER_ts'], granularity)).apply(
+                lambda x: (x['pickup_sla_compliance'] == 'pass').sum() / len(x) * 100
+            )
+            
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=[str(i) for i in daily_pickup.index], y=daily_pickup.values, mode='lines+markers'))
+            fig.add_hline(y=95, line_dash="dash", line_color="red", annotation_text="Target")
+            fig.update_layout(title="Pickup Compliance Trend", height=300, showlegend=False)
+            st.plotly_chart(fig, width="stretch")
+except:
+    st.info("Pickup compliance data unavailable")
+
+# 3b. Forward Delivery Compliance (anchored to lvl1_IN_TRANSIT_ts)
+try:
+    if 'lvl1_IN_TRANSIT_ts' in df_filtered.columns:
+        forward_comp = (df_filtered['forward_delivery_compliance'] == 'pass').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
+        
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            st.metric("3b. Forward Delivery Compliance %", f"{forward_comp:.1f}%", delta="vs target 92%")
+        
+        with col2:
+            daily_forward = df_filtered.groupby(get_time_column(df_filtered['lvl1_IN_TRANSIT_ts'], granularity)).apply(
+                lambda x: (x['forward_delivery_compliance'] == 'pass').sum() / len(x) * 100
+            )
+            
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=[str(i) for i in daily_forward.index], y=daily_forward.values, mode='lines+markers'))
+            fig.add_hline(y=92, line_dash="dash", line_color="red", annotation_text="Target")
+            fig.update_layout(title="Forward Delivery Compliance Trend", height=300, showlegend=False)
+            st.plotly_chart(fig, width="stretch")
+except:
+    st.info("Forward compliance data unavailable")
+
+# 3c-3f. Lead Times (anchored to lvl1_final_status_ts)
+try:
+    col1, col2, col3, col4 = st.columns(4)
+    
+    oc_rfh = df_filtered['oc_to_rfh_days'].mean()
+    oc_fa = df_filtered['oc_to_fa_days'].mean()
+    rfh_fa = df_filtered['rfh_to_fa_days'].mean()
+    rfh_fa_p90 = df_filtered['rfh_to_fa_days'].quantile(0.9)
+    
+    with col1:
+        st.metric("3c. OC to RFH (days)", f"{oc_rfh:.1f}")
+    with col2:
+        st.metric("3d. OC to FA (days)", f"{oc_fa:.1f}")
+    with col3:
+        st.metric("3e. RFH to FA (days)", f"{rfh_fa:.1f}")
+    with col4:
+        st.metric("3f. RFH to FA P90 (days)", f"{rfh_fa_p90:.1f}")
+except:
+    st.info("Lead time data unavailable")
+
+# 3g. Failed Delivery (anchored to lvl1_final_status_ts)
+try:
+    failed_pct = (df_filtered['final_status'].isin(['FAILED', 'RTS'])).sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
+    
+    st.metric("3g. Failed Delivery %", f"{failed_pct:.1f}%", delta="vs target <5%")
+except:
+    st.info("Failed delivery data unavailable")
+
+st.divider()
+
+# ============================================================================
+# SECTION 4: BREACH
+# ============================================================================
+
+st.markdown("## 4️⃣ Breach")
+
+try:
+    col1, col2, col3, col4 = st.columns(4)
+    
+    forward_breach = (df_filtered['is_forward_hard_breach'] == 'Yes').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
+    rts_breach = (df_filtered['is_rts_hard_breach'] == 'Yes').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
+    e2e_breach = (df_filtered['final_status'] == 'BREACHED').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
+    promise_breach = len(df_filtered) > 0 and 0  # Placeholder
+    
+    with col1:
+        st.metric("4a. Forward Journey Breach %", f"{forward_breach:.1f}%")
+    with col2:
+        st.metric("4b. RTS Journey Breach %", f"{rts_breach:.1f}%")
+    with col3:
+        st.metric("4c. E2E SLA Breach %", f"{e2e_breach:.1f}%")
+    with col4:
+        st.metric("4d. Promise Breach %", f"{promise_breach:.1f}%")
+except:
+    st.info("Breach data unavailable")
+
+st.divider()
+
+# ============================================================================
+# SECTION 5: LOST & DAMAGED
+# ============================================================================
+
+st.markdown("## 5️⃣ Lost & Damaged")
+
+try:
+    col1, col2 = st.columns(2)
+    
+    lost_pct = (df_filtered['final_status'] == 'LOST').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
+    damaged_pct = (df_filtered['final_status'] == 'DAMAGED').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
+    
+    with col1:
+        st.metric("5a. Lost %", f"{lost_pct:.1f}%", delta="vs target <0.1%")
+    
+    with col2:
+        st.metric("5b. Damaged %", f"{damaged_pct:.1f}%", delta="vs target <0.1%")
+except:
+    st.info("Lost & Damaged data unavailable")
+
+st.divider()
+
+st.caption("Dashboard v3.0 | Multi-dimensional filtering | Independent timestamp anchors | ISO week granularity")
