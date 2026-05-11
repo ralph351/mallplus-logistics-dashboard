@@ -158,9 +158,13 @@ st.markdown("### 📊 Filters & Dimensions")
 col1, col2, col3, col4, col5, col6 = st.columns(6)
 
 with col1:
+    # Defensive: Check if 3pl_name column exists
+    three_pl_options = ["All 3PLs"]
+    if '3pl_name' in df.columns:
+        three_pl_options += list(df['3pl_name'].dropna().unique())
     three_pl = st.selectbox(
         "3PL Partner",
-        ["All 3PLs"] + list(df['3pl_name'].dropna().unique()),
+        three_pl_options,
         help="Select 3PL or view all"
     )
 
@@ -283,7 +287,7 @@ try:
             fig.add_trace(go.Scatter(x=[str(i) for i in daily_cpp.index], y=daily_cpp.values, mode='lines+markers', name='CPP'))
             fig.add_hline(y=81.04, line_dash="dash", line_color="red", annotation_text="Target")
             fig.update_layout(title="CPP Trend", height=300, showlegend=False)
-            st.plotly_chart(fig, width="stretch")
+            st.plotly_chart(fig, use_container_width=True)
 except Exception as e:
     st.info("Cost data unavailable")
 
@@ -313,7 +317,7 @@ try:
             fig.add_trace(go.Scatter(x=[str(i) for i in daily_pickup.index], y=daily_pickup.values, mode='lines+markers'))
             fig.add_hline(y=95, line_dash="dash", line_color="red", annotation_text="Target")
             fig.update_layout(title="Pickup Compliance Trend", height=300, showlegend=False)
-            st.plotly_chart(fig, width="stretch")
+            st.plotly_chart(fig, use_container_width=True)
 except:
     st.info("Pickup compliance data unavailable")
 
@@ -335,7 +339,7 @@ try:
             fig.add_trace(go.Scatter(x=[str(i) for i in daily_forward.index], y=daily_forward.values, mode='lines+markers'))
             fig.add_hline(y=92, line_dash="dash", line_color="red", annotation_text="Target")
             fig.update_layout(title="Forward Delivery Compliance Trend", height=300, showlegend=False)
-            st.plotly_chart(fig, width="stretch")
+            st.plotly_chart(fig, use_container_width=True)
 except:
     st.info("Forward compliance data unavailable")
 
