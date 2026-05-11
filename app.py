@@ -1,7 +1,6 @@
 """
-MallPlus Logistics Dashboard - Full Redesign
-Real-time logistics KPI monitoring for J&T operations
-140-field schema with seller, cost, and geographic analytics
+MallPlus Logistics Dashboard - Enhanced Layout v2.1
+Professional analytics dashboard with monthly OKR table and performance charts
 """
 
 import streamlit as st
@@ -74,7 +73,6 @@ st.markdown("""
 def load_data():
     """Load 140-field data from Google Sheets."""
     try:
-        # Try Streamlit Secrets first (for Cloud), fallback to local file (for dev)
         try:
             credentials_dict = st.secrets["google_credentials"]
             creds = service_account.Credentials.from_service_account_info(
@@ -82,7 +80,6 @@ def load_data():
                 scopes=['https://www.googleapis.com/auth/spreadsheets.readonly']
             )
         except (KeyError, FileNotFoundError):
-            # Fallback to local file for development
             creds_path = os.path.expanduser("~/.openclaw/workspace-logistics/secrets/google-sa-key.json")
             creds = service_account.Credentials.from_service_account_file(
                 creds_path,
@@ -90,10 +87,8 @@ def load_data():
             )
         
         sheets = build('sheets', 'v4', credentials=creds)
-        # Use the new 140-field simulated data sheet
         sheet_id = "1L5qyfPzh2fmiR6-F1TKB2Op03xMzyBn3XmqaTpLOU_A"
         
-        # Fetch Simulated Data sheet (dynamic range to handle any column count)
         result = sheets.spreadsheets().values().get(
             spreadsheetId=sheet_id,
             range="'Simulated Data'!A1:ZZ1000"
@@ -105,11 +100,9 @@ def load_data():
             headers = values[0]
             data = values[1:]
             
-            # Ensure all rows have same number of columns as header
             for row in data:
                 while len(row) < len(headers):
-                    row.append('')  # Pad missing columns
-                row = row[:len(headers)]  # Trim excess columns
+                    row.append('')
             
             df = pd.DataFrame(data, columns=headers)
             return df
@@ -119,7 +112,6 @@ def load_data():
     
     except Exception as e:
         st.error(f"❌ Error loading data: {str(e)}")
-        st.info("💡 Tip: If running on Streamlit Cloud, add Google credentials to Secrets (Settings → Secrets)")
         return pd.DataFrame()
 
 # ============================================================================
@@ -146,515 +138,293 @@ def calculate_kpis(df):
         avg_shipping_fee = 0
     
     try:
-        sla_breaches = len(df[df['forward_delivery_compliance'] == 'fail'])
-    except:
-        sla_breaches = 0
-    
-    try:
         delivered = len(df[df['final_status'] == 'DELIVERED'])
     except:
         delivered = 0
     
+    try:
+        failed_delivery = len(df[df['final_status'].isin(['FAILED', 'RTS'])])
+    except:
+        failed_delivery = 0
+    
+    try:
+        rts = len(df[df['final_status'] == 'RTS'])
+    except:
+        rts = 0
+    
+    try:
+        damaged = len(df[df['final_status'] == 'DAMAGED'])
+    except:
+        damaged = 0
+    
+    try:
+        lost = len(df[df['final_status'] == 'LOST'])
+    except:
+        lost = 0
+    
     return {
         'total_parcels': total,
+        'delivered': delivered,
         'pickup_compliance': round(pickup_compliance, 1),
         'forward_compliance': round(forward_compliance, 1),
-        'avg_shipping_fee': round(avg_shipping_fee, 2),
-        'cpp_target': 81.04,
-        'sla_breaches': sla_breaches,
-        'delivered': delivered,
-        'delivery_rate': round(delivered / total * 100, 1) if total > 0 else 0,
+        'cpp': round(avg_shipping_fee, 2),
+        'failed_delivery_count': failed_delivery,
+        'rts_count': rts,
+        'damaged_count': damaged,
+        'lost_count': lost,
+        'failed_delivery_pct': round(failed_delivery / total * 100, 1) if total > 0 else 0,
+        'rts_pct': round(rts / total * 100, 1) if total > 0 else 0,
+        'damaged_pct': round(damaged / total * 100, 1) if total > 0 else 0,
+        'lost_pct': round(lost / total * 100, 1) if total > 0 else 0,
     }
 
-def get_status_distribution(df):
-    """Get parcel status breakdown."""
-    return df['final_status'].value_counts()
-
-def get_category_performance(df):
-    """Get performance by seller category."""
-    category_stats = df.groupby('seller_category').agg({
-        'tracking_number': 'count',
-        'forward_delivery_compliance': lambda x: (x == 'pass').sum() / len(x) * 100 if len(x) > 0 else 0,
-        'actual_shipping_fee': 'mean'
-    }).round(2)
+def get_monthly_okr_table(df):
+    """Get monthly OKR summary table."""
+    try:
+        df['order_date'] = pd.to_datetime(df['order_create_ts'], errors='coerce')
+        df['month'] = df['order_date'].dt.to_period('M')
+    except:
+        return pd.DataFrame()
     
-    category_stats.columns = ['Parcel Count', 'Forward SLA %', 'Avg Fee (₱)']
-    return category_stats
-
-def get_region_performance(df):
-    """Get performance by origin region."""
-    region_stats = df.groupby('origin_region').agg({
+    monthly_stats = df.groupby('month').agg({
         'tracking_number': 'count',
+        'final_status': lambda x: (x == 'DELIVERED').sum(),
         'forward_delivery_compliance': lambda x: (x == 'pass').sum() / len(x) * 100 if len(x) > 0 else 0,
         'pickup_sla_compliance': lambda x: (x == 'pass').sum() / len(x) * 100 if len(x) > 0 else 0,
-        'actual_shipping_fee': 'mean'
+        'actual_shipping_fee': 'mean',
+        'final_status': lambda x: (x.isin(['FAILED', 'RTS'])).sum() / len(x) * 100,
     }).round(2)
     
-    region_stats.columns = ['Parcel Count', 'Forward SLA %', 'Pickup SLA %', 'Avg Fee (₱)']
-    return region_stats
-
-def get_delivery_option_performance(df):
-    """Get performance by delivery option."""
-    delivery_stats = df.groupby('delivery_option').agg({
+    monthly_stats.columns = ['Delivered Volume', 'Forward SLA %', 'Pickup SLA %', 'CPP (₱)', 'Failed Delivery %']
+    
+    # Recalculate to fix issue
+    monthly_stats = df.groupby('month').agg({
         'tracking_number': 'count',
-        'forward_delivery_compliance': lambda x: (x == 'pass').sum() / len(x) * 100 if len(x) > 0 else 0,
-        'actual_shipping_fee': 'mean'
-    }).round(2)
+    })
+    monthly_stats.columns = ['Total Volume']
     
-    delivery_stats.columns = ['Parcel Count', 'Forward SLA %', 'Avg Fee (₱)']
-    return delivery_stats
-
-def get_payment_distribution(df):
-    """Get payment type distribution."""
-    return df['payment_type'].value_counts()
-
-def get_cost_analysis(df):
-    """Get cost analysis by region and category."""
-    cost_by_region = df.groupby('origin_region')['actual_shipping_fee'].agg(['count', 'mean', 'sum']).round(2)
-    cost_by_region.columns = ['Parcels', 'Avg Fee (₱)', 'Total Cost (₱)']
-    return cost_by_region
+    delivered = df.groupby('month').apply(lambda x: (x['final_status'] == 'DELIVERED').sum())
+    forward_sla = df.groupby('month').apply(lambda x: (x['forward_delivery_compliance'] == 'pass').sum() / len(x) * 100 if len(x) > 0 else 0)
+    pickup_sla = df.groupby('month').apply(lambda x: (x['pickup_sla_compliance'] == 'pass').sum() / len(x) * 100 if len(x) > 0 else 0)
+    cpp = df.groupby('month')['actual_shipping_fee'].apply(lambda x: pd.to_numeric(x, errors='coerce').mean())
+    failed_pct = df.groupby('month').apply(lambda x: (x['final_status'].isin(['FAILED', 'RTS'])).sum() / len(x) * 100 if len(x) > 0 else 0)
+    rts_pct = df.groupby('month').apply(lambda x: (x['final_status'] == 'RTS').sum() / len(x) * 100 if len(x) > 0 else 0)
+    
+    monthly_stats['Delivered Volume'] = delivered
+    monthly_stats['Forward SLA %'] = forward_sla.round(1)
+    monthly_stats['Pickup SLA %'] = pickup_sla.round(1)
+    monthly_stats['CPP (₱)'] = cpp.round(2)
+    monthly_stats['Failed Delivery %'] = failed_pct.round(1)
+    monthly_stats['RTS %'] = rts_pct.round(1)
+    
+    return monthly_stats
 
 # ============================================================================
 # MAIN APP
 # ============================================================================
 
-st.title("🚚 MallPlus Logistics Dashboard - Full Analytics")
-st.markdown("**Real-time J&T Logistics Monitoring** | 500 Parcels | April 1-7, 2026 | Last Updated: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+st.title("🚚 MallPlus Logistics Dashboard")
+st.markdown("**Real-time J&T Logistics Monitoring** | Last Updated: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
 # Load data
 df = load_data()
 
 if df.empty:
-    st.error("❌ No data available. Please check the data source.")
-    st.info("For Streamlit Cloud: Add google_credentials to Secrets\nFor Local Dev: Ensure google-sa-key.json exists")
+    st.error("❌ No data available.")
     st.stop()
 
-# Convert numeric and timestamp columns safely
+# Convert columns
 for col in df.columns:
     if 'ts' in col.lower():
         try:
             df[col] = pd.to_datetime(df[col], errors='coerce')
         except:
             pass
-    elif col in ['package_weight', 'package_value', 'actual_shipping_fee', 'estimated_shipping_fee', 'paid_value', 'item_count']:
+    elif col in ['package_weight', 'actual_shipping_fee', 'estimated_shipping_fee']:
         try:
             df[col] = pd.to_numeric(df[col], errors='coerce')
         except:
             pass
 
-# Calculate KPIs
-try:
-    kpis = calculate_kpis(df)
-except Exception as e:
-    st.error(f"Error calculating KPIs: {e}")
-    kpis = {}
+kpis = calculate_kpis(df)
 
 # ============================================================================
-# TABS
+# FILTER ROW
 # ============================================================================
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "📊 Executive", 
-    "📦 Operations", 
-    "🔍 Analytics",
-    "🏪 Seller Performance",
-    "💰 Cost Analysis",
-    "🌍 Geographic Heatmap"
-])
+st.markdown("### 📊 Filters & Time Dimension")
+
+col1, col2, col3, col4 = st.columns(4)
+
+with col1:
+    venture = st.selectbox("3PL Partner", df['3pl_name'].unique() if '3pl_name' in df.columns else ['J&T'])
+
+with col2:
+    date_range = st.date_input("Date Range", [datetime.now() - timedelta(days=30), datetime.now()])
+
+with col3:
+    granularity = st.radio("Time Granularity", ["Daily", "Weekly", "Monthly"], horizontal=True)
+
+with col4:
+    st.empty()
+
+st.divider()
+
+# Filter data by venture
+df_filtered = df[df['3pl_name'] == venture] if '3pl_name' in df.columns else df
 
 # ============================================================================
-# TAB 1: EXECUTIVE DASHBOARD
+# MONTHLY OKR TABLE
 # ============================================================================
 
-with tab1:
-    st.markdown("### Key Performance Indicators")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">Pickup Compliance</div>
-            <div class="metric-value">{kpis['pickup_compliance']:.1f}%</div>
-            <div class="metric-label">Target: 95%</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">Forward SLA</div>
-            <div class="metric-value">{kpis['forward_compliance']:.1f}%</div>
-            <div class="metric-label">Target: 92%</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col3:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">Avg Shipping Fee</div>
-            <div class="metric-value">₱{kpis['avg_shipping_fee']:.2f}</div>
-            <div class="metric-label">Target CPP: ₱{kpis['cpp_target']}</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col4:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">SLA Breaches</div>
-            <div class="metric-value">{kpis['sla_breaches']}</div>
-            <div class="metric-label">Target: <5</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    st.markdown("---")
-    
-    # Status Distribution
-    st.markdown("### Parcel Status Distribution")
-    status_dist = get_status_distribution(df)
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        fig = go.Figure(data=[
-            go.Bar(
-                x=status_dist.index,
-                y=status_dist.values,
-                text=status_dist.values,
-                textposition='outside',
-                marker=dict(color=['#10b981', '#f59e0b', '#ef4444', '#6366f1', '#8b5cf6'][:len(status_dist)])
-            )
-        ])
-        fig.update_layout(
-            title="Parcel Count by Status",
-            xaxis_title="Status",
-            yaxis_title="Count",
-            height=350,
-            showlegend=False
+st.markdown("### 📈 Monthly OKR Summary")
+
+monthly_table = get_monthly_okr_table(df_filtered)
+
+if not monthly_table.empty:
+    st.dataframe(monthly_table, width="stretch", use_container_width=True)
+else:
+    st.info("No monthly data available")
+
+st.divider()
+
+# ============================================================================
+# CHARTS - ROW 1
+# ============================================================================
+
+st.markdown("### 📉 Performance Charts")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    # Delivery Volume Trend
+    try:
+        df_filtered['order_date'] = pd.to_datetime(df_filtered['order_create_ts'], errors='coerce')
+        daily_volume = df_filtered.groupby(df_filtered['order_date'].dt.date).size()
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=daily_volume.index, y=daily_volume.values, mode='lines+markers', name='Actual'))
+        fig.add_hline(y=daily_volume.mean(), line_dash="dash", line_color="red", annotation_text="Target")
+        fig.update_layout(title="Delivery Volume Trend", xaxis_title="Date", yaxis_title="Volume", height=350)
+        st.plotly_chart(fig, use_container_width=True)
+    except:
+        st.info("Volume data unavailable")
+
+with col2:
+    # Forward SLA Compliance Trend
+    try:
+        daily_sla = df_filtered.groupby(df_filtered['order_date'].dt.date).apply(
+            lambda x: (x['forward_delivery_compliance'] == 'pass').sum() / len(x) * 100
         )
-        st.plotly_chart(fig, width="stretch")
-    
-    with col2:
-        fig = go.Figure(data=[
-            go.Pie(
-                labels=status_dist.index,
-                values=status_dist.values,
-            )
-        ])
-        fig.update_layout(title="Status Distribution %", height=350)
-        st.plotly_chart(fig, width="stretch")
-    
-    st.markdown("---")
-    
-    # SLA Compliance Heatmap
-    st.markdown("### Forward SLA Compliance by Region")
-    
-    compliance_matrix = pd.crosstab(
-        df['origin_region'],
-        df['destination_region'],
-        values=(df['forward_delivery_compliance'] == 'pass').astype(int),
-        aggfunc='mean'
-    ) * 100
-    
-    fig = go.Figure(data=go.Heatmap(
-        z=compliance_matrix.values,
-        x=compliance_matrix.columns,
-        y=compliance_matrix.index,
-        colorscale='RdYlGn',
-        text=np.round(compliance_matrix.values, 1),
-        texttemplate='%{text:.1f}%',
-        textfont={"size": 10},
-        colorbar=dict(title="Compliance %")
-    ))
-    fig.update_layout(
-        title="Forward SLA Compliance % (Origin → Destination)",
-        xaxis_title="Destination Region",
-        yaxis_title="Origin Region",
-        height=400
-    )
-    st.plotly_chart(fig, width="stretch")
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=daily_sla.index, y=daily_sla.values, mode='lines+markers', name='Actual'))
+        fig.add_hline(y=92, line_dash="dash", line_color="red", annotation_text="Target (92%)")
+        fig.update_layout(title="Forward SLA Compliance %", xaxis_title="Date", yaxis_title="Compliance %", height=350)
+        st.plotly_chart(fig, use_container_width=True)
+    except:
+        st.info("SLA data unavailable")
 
 # ============================================================================
-# TAB 2: OPERATIONS DASHBOARD
+# CHARTS - ROW 2
 # ============================================================================
 
-with tab2:
-    st.markdown("### Operational Metrics")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.metric("Total Parcels", kpis['total_parcels'])
-    
-    with col2:
-        st.metric("Delivered", kpis['delivered'], delta=f"{kpis['delivery_rate']:.1f}%")
-    
-    with col3:
-        st.metric("In Exception Queue", kpis['sla_breaches'])
-    
-    st.markdown("---")
-    
-    # Delivery Option Performance
-    st.markdown("### Performance by Delivery Option")
-    delivery_perf = get_delivery_option_performance(df)
-    st.dataframe(delivery_perf, width="stretch")
-    
-    st.markdown("---")
-    
-    # Payment Type Distribution
-    st.markdown("### Payment Type Distribution")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        payment_dist = get_payment_distribution(df)
-        fig = go.Figure(data=[
-            go.Pie(labels=payment_dist.index, values=payment_dist.values)
-        ])
-        fig.update_layout(title="Payment Type Distribution", height=350)
-        st.plotly_chart(fig, width="stretch")
-    
-    with col2:
-        payment_stats = df.groupby('payment_type').agg({
-            'tracking_number': 'count',
-            'forward_delivery_compliance': lambda x: (x == 'pass').sum() / len(x) * 100
-        }).round(2)
-        payment_stats.columns = ['Count', 'Forward SLA %']
-        st.dataframe(payment_stats, width="stretch")
+col1, col2 = st.columns(2)
+
+with col1:
+    # Pickup Compliance Trend
+    try:
+        daily_pickup = df_filtered.groupby(df_filtered['order_date'].dt.date).apply(
+            lambda x: (x['pickup_sla_compliance'] == 'pass').sum() / len(x) * 100
+        )
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=daily_pickup.index, y=daily_pickup.values, mode='lines+markers', name='Actual'))
+        fig.add_hline(y=95, line_dash="dash", line_color="red", annotation_text="Target (95%)")
+        fig.update_layout(title="Pickup Compliance %", xaxis_title="Date", yaxis_title="Compliance %", height=350)
+        st.plotly_chart(fig, use_container_width=True)
+    except:
+        st.info("Pickup data unavailable")
+
+with col2:
+    # CPP Trend
+    try:
+        daily_cpp = df_filtered.groupby(df_filtered['order_date'].dt.date)['actual_shipping_fee'].apply(
+            lambda x: pd.to_numeric(x, errors='coerce').mean()
+        )
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=daily_cpp.index, y=daily_cpp.values, mode='lines+markers', name='Actual'))
+        fig.add_hline(y=81.04, line_dash="dash", line_color="red", annotation_text="Target (₱81.04)")
+        fig.update_layout(title="Cost Per Parcel (CPP)", xaxis_title="Date", yaxis_title="Cost (₱)", height=350)
+        st.plotly_chart(fig, use_container_width=True)
+    except:
+        st.info("Cost data unavailable")
+
+st.divider()
 
 # ============================================================================
-# TAB 3: ANALYTICS DASHBOARD
+# CHARTS - ROW 3
 # ============================================================================
 
-with tab3:
-    st.markdown("### Anomaly Detection & Risk Analysis")
-    
-    # Breach Analysis
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        breaches = len(df[df['is_forward_hard_breach'] == 'Yes']) if 'is_forward_hard_breach' in df.columns else 0
-        st.metric("Forward Hard Breach", breaches)
-    
-    with col2:
-        rts = len(df[df['final_status'] == 'RETURNED'])
-        st.metric("RTS Parcels", rts)
-    
-    with col3:
-        damaged = len(df[df['final_status'] == 'DAMAGED'])
-        st.metric("Damaged", damaged)
-    
-    with col4:
-        lost = len(df[df['final_status'] == 'LOST'])
-        st.metric("Lost", lost)
-    
-    st.markdown("---")
-    
-    # Risk by Category
-    st.markdown("### Risk Analysis by Category")
-    
-    risk_by_category = df.groupby('seller_category').agg({
-        'tracking_number': 'count',
-        'forward_delivery_compliance': lambda x: (x == 'fail').sum() / len(x) * 100,
-    }).round(2)
-    risk_by_category.columns = ['Parcel Count', 'SLA Breach Rate %']
-    
-    fig = px.bar(
-        risk_by_category.reset_index(),
-        x='seller_category',
-        y='SLA Breach Rate %',
-        title='SLA Breach Rate by Seller Category',
-        labels={'seller_category': 'Category', 'SLA Breach Rate %': 'Breach Rate (%)'},
-        height=350
-    )
-    st.plotly_chart(fig, width="stretch")
-    
-    st.markdown("---")
-    
-    # Exception Queue
-    st.markdown("### Exception Queue (SLA Breaches)")
-    
-    exceptions = df[df['forward_delivery_compliance'] == 'fail'][['tracking_number', 'seller_category', 'origin_region', 'destination_region', 'final_status']]
-    
-    if len(exceptions) > 0:
-        st.dataframe(exceptions.head(20), width="stretch")
-    else:
-        st.success("✅ No SLA breaches detected")
+col1, col2 = st.columns(2)
 
-# ============================================================================
-# TAB 4: SELLER PERFORMANCE
-# ============================================================================
+with col1:
+    # Failed Delivery %
+    try:
+        daily_fd = df_filtered.groupby(df_filtered['order_date'].dt.date).apply(
+            lambda x: (x['final_status'].isin(['FAILED', 'RTS'])).sum() / len(x) * 100
+        )
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=daily_fd.index, y=daily_fd.values, mode='lines+markers', name='Actual', line=dict(color='#ef4444')))
+        fig.add_hline(y=5, line_dash="dash", line_color="orange", annotation_text="Target (5%)")
+        fig.update_layout(title="Failed Delivery %", xaxis_title="Date", yaxis_title="FD %", height=350)
+        st.plotly_chart(fig, use_container_width=True)
+    except:
+        st.info("FD data unavailable")
 
-with tab4:
-    st.markdown("### Seller Performance Analysis")
-    
-    # Category Performance
-    st.markdown("#### Performance by Seller Category")
-    category_perf = get_category_performance(df)
-    st.dataframe(category_perf, width="stretch")
-    
-    st.markdown("---")
-    
-    # Category Comparison
-    col1, col2 = st.columns(2)
-    
-    with col1:
+with col2:
+    # Regional Performance
+    try:
+        region_perf = df_filtered.groupby('destination_region').apply(
+            lambda x: (x['forward_delivery_compliance'] == 'pass').sum() / len(x) * 100
+        ).sort_values(ascending=False)
+        
         fig = px.bar(
-            category_perf.reset_index(),
-            x='seller_category',
-            y='Forward SLA %',
-            title='Forward SLA Compliance by Category',
-            labels={'seller_category': 'Category'},
+            x=region_perf.index,
+            y=region_perf.values,
+            title="Forward SLA by Region",
+            labels={'x': 'Region', 'y': 'Compliance %'},
             height=350
         )
-        st.plotly_chart(fig, width="stretch")
-    
-    with col2:
-        fig = px.bar(
-            category_perf.reset_index(),
-            x='seller_category',
-            y='Avg Fee (₱)',
-            title='Average Shipping Fee by Category',
-            labels={'seller_category': 'Category'},
-            height=350
-        )
-        st.plotly_chart(fig, width="stretch")
-    
-    st.markdown("---")
-    
-    # Seller Segment Analysis
-    st.markdown("#### Performance by Seller Segment")
-    segment_perf = df.groupby('seller_segment').agg({
-        'tracking_number': 'count',
-        'forward_delivery_compliance': lambda x: (x == 'pass').sum() / len(x) * 100,
-        'actual_shipping_fee': 'mean'
-    }).round(2)
-    segment_perf.columns = ['Parcel Count', 'Forward SLA %', 'Avg Fee (₱)']
-    st.dataframe(segment_perf, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
+    except:
+        st.info("Regional data unavailable")
+
+st.divider()
 
 # ============================================================================
-# TAB 5: COST ANALYSIS
+# SUMMARY METRICS
 # ============================================================================
 
-with tab5:
-    st.markdown("### Cost Analysis & Financial Metrics")
-    
-    # Cost by Region
-    st.markdown("#### Cost Breakdown by Origin Region")
-    cost_region = get_cost_analysis(df)
-    st.dataframe(cost_region, width="stretch")
-    
-    st.markdown("---")
-    
-    # Cost Trends
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        fig = px.bar(
-            cost_region.reset_index(),
-            x='origin_region',
-            y='Avg Fee (₱)',
-            title='Average Shipping Fee by Region',
-            labels={'origin_region': 'Region'},
-            height=350
-        )
-        st.plotly_chart(fig, width="stretch")
-    
-    with col2:
-        fig = px.bar(
-            cost_region.reset_index(),
-            x='origin_region',
-            y='Total Cost (₱)',
-            title='Total Cost by Region',
-            labels={'origin_region': 'Region'},
-            height=350
-        )
-        st.plotly_chart(fig, width="stretch")
-    
-    st.markdown("---")
-    
-    # Cost by Category
-    st.markdown("#### Cost by Seller Category")
-    cost_category = df.groupby('seller_category').agg({
-        'actual_shipping_fee': ['count', 'mean', 'sum']
-    }).round(2)
-    cost_category.columns = ['Parcel Count', 'Avg Fee (₱)', 'Total Cost (₱)']
-    st.dataframe(cost_category, width="stretch")
-    
-    st.markdown("---")
-    
-    # Summary Metrics
-    st.markdown("#### Overall Cost Metrics")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        total_cost = df['actual_shipping_fee'].astype(float).sum()
-        st.metric("Total Cost (₱)", f"{total_cost:,.2f}")
-    
-    with col2:
-        avg_cost = df['actual_shipping_fee'].astype(float).mean()
-        st.metric("Average Cost (₱)", f"{avg_cost:.2f}")
-    
-    with col3:
-        cost_per_successful = df[df['final_status'] == 'DELIVERED']['actual_shipping_fee'].astype(float).mean()
-        st.metric("CPP (Delivered) (₱)", f"{cost_per_successful:.2f}")
+st.markdown("### 📊 Current Period Summary")
 
-# ============================================================================
-# TAB 6: GEOGRAPHIC HEATMAP
-# ============================================================================
+col1, col2, col3, col4, col5 = st.columns(5)
 
-with tab6:
-    st.markdown("### Geographic Performance Analysis")
-    
-    # Region Performance
-    st.markdown("#### Region Performance Matrix")
-    region_perf = get_region_performance(df)
-    st.dataframe(region_perf, width="stretch")
-    
-    st.markdown("---")
-    
-    # Regional Metrics
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        fig = px.bar(
-            region_perf.reset_index(),
-            x='origin_region',
-            y='Forward SLA %',
-            title='Forward SLA Compliance by Origin Region',
-            labels={'origin_region': 'Region'},
-            height=350
-        )
-        st.plotly_chart(fig, width="stretch")
-    
-    with col2:
-        fig = px.bar(
-            region_perf.reset_index(),
-            x='origin_region',
-            y='Pickup SLA %',
-            title='Pickup SLA Compliance by Origin Region',
-            labels={'origin_region': 'Region'},
-            height=350
-        )
-        st.plotly_chart(fig, width="stretch")
-    
-    st.markdown("---")
-    
-    # Route Analysis
-    st.markdown("#### Top 10 Routes by Volume")
-    
-    route_analysis = df.groupby(['origin_region', 'destination_region']).agg({
-        'tracking_number': 'count',
-        'forward_delivery_compliance': lambda x: (x == 'pass').sum() / len(x) * 100
-    }).round(2)
-    route_analysis.columns = ['Parcel Count', 'Forward SLA %']
-    route_analysis = route_analysis.sort_values('Parcel Count', ascending=False).head(10)
-    st.dataframe(route_analysis, width="stretch")
+with col1:
+    st.metric("Total Parcels", kpis['total_parcels'])
 
-# ============================================================================
-# FOOTER
-# ============================================================================
+with col2:
+    st.metric("Delivered", kpis['delivered'])
 
-st.markdown("---")
-st.markdown("**MallPlus Logistics Dashboard** | 500 Parcels | April 1-7, 2026 | Data refreshes every 5 minutes | Powered by Streamlit")
+with col3:
+    st.metric("Forward SLA", f"{kpis['forward_compliance']}%")
+
+with col4:
+    st.metric("Pickup SLA", f"{kpis['pickup_compliance']}%")
+
+with col5:
+    st.metric("CPP", f"₱{kpis['cpp']:.2f}")
+
+st.caption(f"Dashboard version 2.1 | Last refresh: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
