@@ -274,10 +274,13 @@ st.markdown("## 2️⃣ Cost")
 
 try:
     cpp = pd.to_numeric(df_filtered['actual_shipping_fee'], errors='coerce').mean()
+    cpp_target = 81.04
+    cpp_delta = cpp - cpp_target
+    cpp_delta_color = "normal" if cpp <= cpp_target else "inverse"  # Red if over target
     
     col1, col2 = st.columns([1, 2])
     with col1:
-        st.metric("Cost Per Parcel (₱)", f"₱{cpp:.2f}", delta="vs target ₱81.04")
+        st.metric("Cost Per Parcel (₱)", f"₱{cpp:.2f}", delta=f"₱{cpp_delta:.2f} vs ₱{cpp_target}", delta_color=cpp_delta_color)
     
     with col2:
         # CPP trend by final_status_ts
@@ -306,10 +309,13 @@ st.markdown("## 3️⃣ Operations")
 try:
     if 'lvl1_REQUEST_FOR_HANDOVER_ts' in df_filtered.columns:
         pickup_comp = (df_filtered['pickup_sla_compliance'] == 'pass').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
+        pickup_target = 95.0
+        pickup_delta = pickup_comp - pickup_target
+        pickup_delta_color = "normal" if pickup_comp >= pickup_target else "inverse"  # Red if below target
         
         col1, col2 = st.columns([1, 2])
         with col1:
-            st.metric("3a. Pickup Compliance %", f"{pickup_comp:.1f}%", delta="vs target 95%")
+            st.metric("3a. Pickup Compliance %", f"{pickup_comp:.1f}%", delta=f"{pickup_delta:.1f}% vs {pickup_target}%", delta_color=pickup_delta_color)
         
         with col2:
             daily_pickup = df_filtered.groupby(get_time_column(df_filtered['lvl1_REQUEST_FOR_HANDOVER_ts'], granularity)).apply(
@@ -328,10 +334,13 @@ except:
 try:
     if 'lvl1_IN_TRANSIT_ts' in df_filtered.columns:
         forward_comp = (df_filtered['forward_delivery_compliance'] == 'pass').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
+        forward_target = 92.0
+        forward_delta = forward_comp - forward_target
+        forward_delta_color = "normal" if forward_comp >= forward_target else "inverse"  # Red if below target
         
         col1, col2 = st.columns([1, 2])
         with col1:
-            st.metric("3b. Forward Delivery Compliance %", f"{forward_comp:.1f}%", delta="vs target 92%")
+            st.metric("3b. Forward Delivery Compliance %", f"{forward_comp:.1f}%", delta=f"{forward_delta:.1f}% vs {forward_target}%", delta_color=forward_delta_color)
         
         with col2:
             daily_forward = df_filtered.groupby(get_time_column(df_filtered['lvl1_IN_TRANSIT_ts'], granularity)).apply(
@@ -355,22 +364,45 @@ try:
     rfh_fa = df_filtered['rfh_to_fa_days'].mean()
     rfh_fa_p90 = df_filtered['rfh_to_fa_days'].quantile(0.9)
     
+    # Lead time targets (lower is better, so inverse delta coloring)
+    oc_rfh_target, oc_fa_target, rfh_fa_target, rfh_fa_p90_target = 0.5, 2.0, 1.5, 3.0
+    
     with col1:
-        st.metric("3c. OC to RFH (days)", f"{oc_rfh:.1f}")
+        oc_rfh_delta = oc_rfh - oc_rfh_target
+        st.metric("3c. OC to RFH (days)", f"{oc_rfh:.1f}", delta=f"{oc_rfh_delta:.1f}d vs {oc_rfh_target}d", delta_color="inverse" if oc_rfh > oc_rfh_target else "normal")
     with col2:
-        st.metric("3d. OC to FA (days)", f"{oc_fa:.1f}")
+        oc_fa_delta = oc_fa - oc_fa_target
+        st.metric("3d. OC to FA (days)", f"{oc_fa:.1f}", delta=f"{oc_fa_delta:.1f}d vs {oc_fa_target}d", delta_color="inverse" if oc_fa > oc_fa_target else "normal")
     with col3:
-        st.metric("3e. RFH to FA (days)", f"{rfh_fa:.1f}")
+        rfh_fa_delta = rfh_fa - rfh_fa_target
+        st.metric("3e. RFH to FA (days)", f"{rfh_fa:.1f}", delta=f"{rfh_fa_delta:.1f}d vs {rfh_fa_target}d", delta_color="inverse" if rfh_fa > rfh_fa_target else "normal")
     with col4:
-        st.metric("3f. RFH to FA P90 (days)", f"{rfh_fa_p90:.1f}")
+        rfh_fa_p90_delta = rfh_fa_p90 - rfh_fa_p90_target
+        st.metric("3f. RFH to FA P90 (days)", f"{rfh_fa_p90:.1f}", delta=f"{rfh_fa_p90_delta:.1f}d vs {rfh_fa_p90_target}d", delta_color="inverse" if rfh_fa_p90 > rfh_fa_p90_target else "normal")
 except:
     st.info("Lead time data unavailable")
 
 # 3g. Failed Delivery (anchored to lvl1_final_status_ts)
 try:
     failed_pct = (df_filtered['final_status'].isin(['FAILED', 'RTS'])).sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
+    failed_target = 5.0
+    failed_delta = failed_pct - failed_target
     
-    st.metric("3g. Failed Delivery %", f"{failed_pct:.1f}%", delta="vs target <5%")
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.metric("3g. Failed Delivery %", f"{failed_pct:.1f}%", delta=f"{failed_delta:.1f}% vs {failed_target}%", delta_color="inverse" if failed_pct > failed_target else "normal")
+    
+    with col2:
+        if 'lvl1_final_status_ts' in df_filtered.columns:
+            daily_failed = df_filtered.groupby(get_time_column(df_filtered['lvl1_final_status_ts'], granularity)).apply(
+                lambda x: (x['final_status'].isin(['FAILED', 'RTS'])).sum() / len(x) * 100
+            )
+            
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=[str(i) for i in daily_failed.index], y=daily_failed.values, mode='lines+markers'))
+            fig.add_hline(y=failed_target, line_dash="dash", line_color="red", annotation_text="Target")
+            fig.update_layout(title="Failed Delivery Trend", height=300, showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
 except:
     st.info("Failed delivery data unavailable")
 
@@ -383,21 +415,55 @@ st.divider()
 st.markdown("## 4️⃣ Breach")
 
 try:
-    col1, col2, col3, col4 = st.columns(4)
-    
     forward_breach = (df_filtered['is_forward_hard_breach'] == 'Yes').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
     rts_breach = (df_filtered['is_rts_hard_breach'] == 'Yes').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
     e2e_breach = (df_filtered['final_status'] == 'BREACHED').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
-    promise_breach = len(df_filtered) > 0 and 0  # Placeholder
+    promise_breach = 0.0  # Placeholder
+    
+    breach_target = 0.0  # Target = 0% breach
+    
+    # Metrics with trends
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("4a. Forward Journey Breach %", f"{forward_breach:.1f}%")
+        forward_breach_delta = forward_breach - breach_target
+        st.metric("4a. Forward Journey Breach %", f"{forward_breach:.1f}%", delta=f"{forward_breach_delta:.1f}%", delta_color="inverse" if forward_breach > breach_target else "normal")
     with col2:
-        st.metric("4b. RTS Journey Breach %", f"{rts_breach:.1f}%")
+        rts_breach_delta = rts_breach - breach_target
+        st.metric("4b. RTS Journey Breach %", f"{rts_breach:.1f}%", delta=f"{rts_breach_delta:.1f}%", delta_color="inverse" if rts_breach > breach_target else "normal")
     with col3:
-        st.metric("4c. E2E SLA Breach %", f"{e2e_breach:.1f}%")
+        e2e_breach_delta = e2e_breach - breach_target
+        st.metric("4c. E2E SLA Breach %", f"{e2e_breach:.1f}%", delta=f"{e2e_breach_delta:.1f}%", delta_color="inverse" if e2e_breach > breach_target else "normal")
     with col4:
-        st.metric("4d. Promise Breach %", f"{promise_breach:.1f}%")
+        promise_breach_delta = promise_breach - breach_target
+        st.metric("4d. Promise Breach %", f"{promise_breach:.1f}%", delta=f"{promise_breach_delta:.1f}%", delta_color="inverse" if promise_breach > breach_target else "normal")
+    
+    # Trend charts
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if 'lvl1_final_status_ts' in df_filtered.columns:
+            daily_forward_breach = df_filtered.groupby(get_time_column(df_filtered['lvl1_final_status_ts'], granularity)).apply(
+                lambda x: (x['is_forward_hard_breach'] == 'Yes').sum() / len(x) * 100 if len(x) > 0 else 0
+            )
+            
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=[str(i) for i in daily_forward_breach.index], y=daily_forward_breach.values, mode='lines+markers'))
+            fig.add_hline(y=breach_target, line_dash="dash", line_color="red")
+            fig.update_layout(title="Forward Journey Breach Trend", height=300, showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        if 'lvl1_final_status_ts' in df_filtered.columns:
+            daily_rts_breach = df_filtered.groupby(get_time_column(df_filtered['lvl1_final_status_ts'], granularity)).apply(
+                lambda x: (x['is_rts_hard_breach'] == 'Yes').sum() / len(x) * 100 if len(x) > 0 else 0
+            )
+            
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=[str(i) for i in daily_rts_breach.index], y=daily_rts_breach.values, mode='lines+markers'))
+            fig.add_hline(y=breach_target, line_dash="dash", line_color="red")
+            fig.update_layout(title="RTS Journey Breach Trend", height=300, showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
 except:
     st.info("Breach data unavailable")
 
@@ -410,16 +476,47 @@ st.divider()
 st.markdown("## 5️⃣ Lost & Damaged")
 
 try:
-    col1, col2 = st.columns(2)
-    
     lost_pct = (df_filtered['final_status'] == 'LOST').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
     damaged_pct = (df_filtered['final_status'] == 'DAMAGED').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
     
+    ld_target = 0.1  # Target = 0.1%
+    
+    col1, col2 = st.columns(2)
+    
     with col1:
-        st.metric("5a. Lost %", f"{lost_pct:.1f}%", delta="vs target <0.1%")
+        lost_delta = lost_pct - ld_target
+        st.metric("5a. Lost %", f"{lost_pct:.1f}%", delta=f"{lost_delta:.1f}% vs {ld_target}%", delta_color="inverse" if lost_pct > ld_target else "normal")
     
     with col2:
-        st.metric("5b. Damaged %", f"{damaged_pct:.1f}%", delta="vs target <0.1%")
+        damaged_delta = damaged_pct - ld_target
+        st.metric("5b. Damaged %", f"{damaged_pct:.1f}%", delta=f"{damaged_delta:.1f}% vs {ld_target}%", delta_color="inverse" if damaged_pct > ld_target else "normal")
+    
+    # Trend charts
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if 'lvl1_final_status_ts' in df_filtered.columns:
+            daily_lost = df_filtered.groupby(get_time_column(df_filtered['lvl1_final_status_ts'], granularity)).apply(
+                lambda x: (x['final_status'] == 'LOST').sum() / len(x) * 100 if len(x) > 0 else 0
+            )
+            
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=[str(i) for i in daily_lost.index], y=daily_lost.values, mode='lines+markers'))
+            fig.add_hline(y=ld_target, line_dash="dash", line_color="red", annotation_text="Target")
+            fig.update_layout(title="Lost Trend", height=300, showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        if 'lvl1_final_status_ts' in df_filtered.columns:
+            daily_damaged = df_filtered.groupby(get_time_column(df_filtered['lvl1_final_status_ts'], granularity)).apply(
+                lambda x: (x['final_status'] == 'DAMAGED').sum() / len(x) * 100 if len(x) > 0 else 0
+            )
+            
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=[str(i) for i in daily_damaged.index], y=daily_damaged.values, mode='lines+markers'))
+            fig.add_hline(y=ld_target, line_dash="dash", line_color="red", annotation_text="Target")
+            fig.update_layout(title="Damaged Trend", height=300, showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
 except:
     st.info("Lost & Damaged data unavailable")
 
