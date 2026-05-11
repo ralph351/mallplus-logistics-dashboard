@@ -107,7 +107,7 @@ def apply_filters(df, oc_dates, rfh_dates, transit_dates, final_dates, granulari
     
     # 3PL filter
     if three_pl and three_pl != "All 3PLs":
-        df_filtered = df_filtered[df_filtered['3pl_name'] == three_pl]
+        df_filtered = df_filtered[df_filtered['lm_3pl_name'] == three_pl]
     
     # Date range filters (AND logic)
     if oc_dates:
@@ -158,10 +158,10 @@ st.markdown("### 📊 Filters & Dimensions")
 col1, col2, col3, col4, col5, col6 = st.columns(6)
 
 with col1:
-    # Defensive: Check if 3pl_name column exists
+    # Defensive: Check if lm_3pl_name column exists
     three_pl_options = ["All 3PLs"]
-    if '3pl_name' in df.columns:
-        three_pl_options += list(df['3pl_name'].dropna().unique())
+    if 'lm_3pl_name' in df.columns:
+        three_pl_options += sorted(list(df['lm_3pl_name'].dropna().unique()))
     three_pl = st.selectbox(
         "3PL Partner",
         three_pl_options,
@@ -253,10 +253,13 @@ except:
 try:
     with col3:
         if three_pl == "All 3PLs":
-            share_data = df_filtered['3pl_name'].value_counts()
-            st.metric("3PL Share (Top)", f"{share_data.index[0]}: {share_data.values[0]}")
+            if 'lm_3pl_name' in df_filtered.columns:
+                share_data = df_filtered['lm_3pl_name'].value_counts()
+                st.metric("3PL Share (Top)", f"{share_data.index[0]}: {share_data.values[0]}")
+            else:
+                st.metric("3PL Share (Top)", "N/A")
         else:
-            st.metric("Selected 3PL Volume", len(df_filtered))
+            st.metric("Selected 3PL Volume", len(df_filtered)
 except:
     with col3:
         st.metric("Control Share", "N/A")
