@@ -259,7 +259,7 @@ try:
             else:
                 st.metric("3PL Share (Top)", "N/A")
         else:
-            st.metric("Selected 3PL Volume", len(df_filtered)
+            st.metric("Selected 3PL Volume", len(df_filtered))
 except:
     with col3:
         st.metric("Control Share", "N/A")
