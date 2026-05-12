@@ -94,8 +94,8 @@ def prepare_data(df):
                 df[col] = pd.to_datetime(df[col], errors='coerce')
     
     # Lead time calculations (in days)
-    if 'order_create_ts' in df.columns and 'lvl1_REQUEST_FOR_HANDOVER_ts' in df.columns:
-        df['oc_to_rfh_days'] = (df['lvl1_REQUEST_FOR_HANDOVER_ts'] - df['order_create_ts']).dt.total_seconds() / 86400
+    if 'order_create_ts' in df.columns and 'lvl1_READY_FOR_HANDOVER_ts' in df.columns:
+        df['oc_to_rfh_days'] = (df['lvl1_READY_FOR_HANDOVER_ts'] - df['order_create_ts']).dt.total_seconds() / 86400
     
     if 'order_create_ts' in df.columns and 'lvl2_first_attempt_ts' in df.columns:
         df['oc_to_fa_days'] = (df['lvl2_first_attempt_ts'] - df['order_create_ts']).dt.total_seconds() / 86400
@@ -403,7 +403,7 @@ try:
     else:
         st.info("Lead time data unavailable - check if timestamp columns are populated")
 except Exception as e:
-    st.info(f"Lead time data unavailable: {str(e)}")}]}
+    st.info(f"Lead time data unavailable: {str(e)}")
 
 # 3g. Failed Delivery (anchored to lvl1_final_status_ts)
 try:
