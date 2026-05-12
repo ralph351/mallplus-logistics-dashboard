@@ -32,7 +32,7 @@ st.markdown("**Professional Multi-Dimensional Analytics** | Last Updated: " + da
 # DATA LOADING
 # ============================================================================
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)  # Short TTL to catch new data quickly
 def load_data():
     """Load 140-field data from Google Sheets."""
     try:
