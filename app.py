@@ -669,17 +669,49 @@ st.divider()
 # SECTION 6: ANOMALY DETECTION (Coming Soon)
 # ============================================================================
 
-with st.expander("🔍 Anomaly Detection & Proactive Tools (Coming Soon)"):
-    st.markdown("""
-    ### Planned Tools:
-    - **Fake Attempt Detection**: Identify pickup/delivery attempts outside seller/buyer hours or far from location
-    - **Theft & Tampering Detection**: Weight variance, ePOD changes, and stagnation flags
-    - **Habitual Offender Tracking**: Couriers with high failure rates or bulk FD tagging
-    - **Cost Leakage Detection**: Rate card mismatches and improper allocations
-    - **SLA Breach Early Warning**: Predict failures before they happen
-    - **Claims Management**: Clawback tracking and contract compliance
-    """)
-    st.caption("Anomaly Detection module - Integration with Sage Bot")
+with st.expander("🔍 Anomaly Detection Dashboard"):
+    st.markdown("## Risk Flags & Early Warning System")
+    
+    try:
+        # Count anomalies
+        fake_attempts = (df_filtered['is_fake_attempt'] == 1).sum()
+        theft_risks = (df_filtered['is_theft_risk'] == 1).sum()
+        cost_leaks = (df_filtered['is_cost_leakage'] == 1).sum()
+        sla_risks = (df_filtered['is_sla_at_risk'] == 1).sum()
+        
+        total_anomalies = fake_attempts + theft_risks + cost_leaks + sla_risks
+        
+        # Display key metrics
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("🚨 Fake Attempts", fake_attempts, delta=f"{fake_attempts/max(len(df_filtered),1)*100:.1f}%")
+        with col2:
+            st.metric("📦 Theft Risk", theft_risks, delta=f"{theft_risks/max(len(df_filtered),1)*100:.1f}%")
+        with col3:
+            st.metric("💰 Cost Leakage", cost_leaks, delta=f"{cost_leaks/max(len(df_filtered),1)*100:.1f}%")
+        with col4:
+            st.metric("⏱️ SLA at Risk", sla_risks, delta=f"{sla_risks/max(len(df_filtered),1)*100:.1f}%")
+        
+        st.divider()
+        
+        # Detailed anomaly table
+        st.markdown("### Flagged Parcels")
+        anomaly_parcels = df_filtered[
+            (df_filtered['is_fake_attempt'] == 1) | 
+            (df_filtered['is_theft_risk'] == 1) | 
+            (df_filtered['is_cost_leakage'] == 1) | 
+            (df_filtered['is_sla_at_risk'] == 1)
+        ][['order_id', 'final_status', 'lm_3pl_name', 'actual_shipping_fee', 'rfh_to_fa_days', 'is_fake_attempt', 'is_theft_risk', 'is_cost_leakage', 'is_sla_at_risk']].head(20)
+        
+        if len(anomaly_parcels) > 0:
+            st.dataframe(anomaly_parcels, use_container_width=True)
+        else:
+            st.info("No anomalies detected in current filter")
+        
+        st.markdown(f"**Total Anomalies:** {total_anomalies} out of {len(df_filtered)} parcels")
+        
+    except Exception as e:
+        st.error(f"Anomaly detection error: {str(e)}")
 
 st.divider()
 
