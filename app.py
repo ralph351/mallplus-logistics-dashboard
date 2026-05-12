@@ -54,7 +54,7 @@ def load_data():
         
         result = sheets.spreadsheets().values().get(
             spreadsheetId=sheet_id,
-            range="'Simulated Data'!A:ZZ"
+            range="'Simulated Data'"
         ).execute()
         
         values = result.get('values', [])
