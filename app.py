@@ -363,28 +363,47 @@ except:
 try:
     col1, col2, col3, col4 = st.columns(4)
     
-    oc_rfh = df_filtered['oc_to_rfh_days'].mean()
-    oc_fa = df_filtered['oc_to_fa_days'].mean()
-    rfh_fa = df_filtered['rfh_to_fa_days'].mean()
-    rfh_fa_p90 = df_filtered['rfh_to_fa_days'].quantile(0.9)
+    # Calculate lead times with NaN handling
+    oc_rfh = df_filtered['oc_to_rfh_days'].dropna().mean() if 'oc_to_rfh_days' in df_filtered.columns else np.nan
+    oc_fa = df_filtered['oc_to_fa_days'].dropna().mean() if 'oc_to_fa_days' in df_filtered.columns else np.nan
+    rfh_fa = df_filtered['rfh_to_fa_days'].dropna().mean() if 'rfh_to_fa_days' in df_filtered.columns else np.nan
+    rfh_fa_p90 = df_filtered['rfh_to_fa_days'].dropna().quantile(0.9) if 'rfh_to_fa_days' in df_filtered.columns else np.nan
     
     # Lead time targets (lower is better, so inverse delta coloring)
     oc_rfh_target, oc_fa_target, rfh_fa_target, rfh_fa_p90_target = 0.5, 2.0, 1.5, 3.0
     
-    with col1:
-        oc_rfh_delta = oc_rfh - oc_rfh_target
-        st.metric("3c. OC to RFH (days)", f"{oc_rfh:.1f}", delta=f"{oc_rfh_delta:.1f}d vs {oc_rfh_target}d", delta_color="inverse" if oc_rfh > oc_rfh_target else "normal")
-    with col2:
-        oc_fa_delta = oc_fa - oc_fa_target
-        st.metric("3d. OC to FA (days)", f"{oc_fa:.1f}", delta=f"{oc_fa_delta:.1f}d vs {oc_fa_target}d", delta_color="inverse" if oc_fa > oc_fa_target else "normal")
-    with col3:
-        rfh_fa_delta = rfh_fa - rfh_fa_target
-        st.metric("3e. RFH to FA (days)", f"{rfh_fa:.1f}", delta=f"{rfh_fa_delta:.1f}d vs {rfh_fa_target}d", delta_color="inverse" if rfh_fa > rfh_fa_target else "normal")
-    with col4:
-        rfh_fa_p90_delta = rfh_fa_p90 - rfh_fa_p90_target
-        st.metric("3f. RFH to FA P90 (days)", f"{rfh_fa_p90:.1f}", delta=f"{rfh_fa_p90_delta:.1f}d vs {rfh_fa_p90_target}d", delta_color="inverse" if rfh_fa_p90 > rfh_fa_p90_target else "normal")
-except:
-    st.info("Lead time data unavailable")
+    # Check if data is available (not all NaN)
+    has_lead_time_data = not (pd.isna(oc_rfh) and pd.isna(oc_fa) and pd.isna(rfh_fa) and pd.isna(rfh_fa_p90))
+    
+    if has_lead_time_data:
+        with col1:
+            if not pd.isna(oc_rfh):
+                oc_rfh_delta = oc_rfh - oc_rfh_target
+                st.metric("3c. OC to RFH (days)", f"{oc_rfh:.1f}", delta=f"{oc_rfh_delta:.1f}d vs {oc_rfh_target}d", delta_color="inverse" if oc_rfh > oc_rfh_target else "normal")
+            else:
+                st.metric("3c. OC to RFH (days)", "N/A")
+        with col2:
+            if not pd.isna(oc_fa):
+                oc_fa_delta = oc_fa - oc_fa_target
+                st.metric("3d. OC to FA (days)", f"{oc_fa:.1f}", delta=f"{oc_fa_delta:.1f}d vs {oc_fa_target}d", delta_color="inverse" if oc_fa > oc_fa_target else "normal")
+            else:
+                st.metric("3d. OC to FA (days)", "N/A")
+        with col3:
+            if not pd.isna(rfh_fa):
+                rfh_fa_delta = rfh_fa - rfh_fa_target
+                st.metric("3e. RFH to FA (days)", f"{rfh_fa:.1f}", delta=f"{rfh_fa_delta:.1f}d vs {rfh_fa_target}d", delta_color="inverse" if rfh_fa > rfh_fa_target else "normal")
+            else:
+                st.metric("3e. RFH to FA (days)", "N/A")
+        with col4:
+            if not pd.isna(rfh_fa_p90):
+                rfh_fa_p90_delta = rfh_fa_p90 - rfh_fa_p90_target
+                st.metric("3f. RFH to FA P90 (days)", f"{rfh_fa_p90:.1f}", delta=f"{rfh_fa_p90_delta:.1f}d vs {rfh_fa_p90_target}d", delta_color="inverse" if rfh_fa_p90 > rfh_fa_p90_target else "normal")
+            else:
+                st.metric("3f. RFH to FA P90 (days)", "N/A")
+    else:
+        st.info("Lead time data unavailable - check if timestamp columns are populated")
+except Exception as e:
+    st.info(f"Lead time data unavailable: {str(e)}")}]}
 
 # 3g. Failed Delivery (anchored to lvl1_final_status_ts)
 try:
