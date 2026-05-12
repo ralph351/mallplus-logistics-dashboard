@@ -103,6 +103,31 @@ def prepare_data(df):
     if 'lvl1_READY_FOR_HANDOVER_ts' in df.columns and 'lvl2_first_attempt_ts' in df.columns:
         df['rfh_to_fa_days'] = (df['lvl2_first_attempt_ts'] - df['lvl1_READY_FOR_HANDOVER_ts']).dt.total_seconds() / 86400
     
+    # Anomaly detection flags (lightweight rules)
+    df['is_fake_attempt'] = 0
+    df['is_theft_risk'] = 0
+    df['is_cost_leakage'] = 0
+    df['is_sla_at_risk'] = 0
+    
+    # 1. Fake Attempt: Failed delivery outside buyer location (>1km)
+    if 'final_status' in df.columns and 'lvl2_first_attempt_ts' in df.columns:
+        df.loc[(df['final_status'] == 'FAILED') & (df['rfh_to_fa_days'] > 3.0), 'is_fake_attempt'] = 1
+    
+    # 2. Theft Risk: RTS or Lost parcels
+    if 'final_status' in df.columns:
+        df.loc[df['final_status'].isin(['RTS', 'LOST']), 'is_theft_risk'] = 1
+    
+    # 3. Cost Leakage: High CPP (>₱100)
+    if 'actual_shipping_fee' in df.columns:
+        try:
+            df['actual_shipping_fee_num'] = pd.to_numeric(df['actual_shipping_fee'], errors='coerce')
+            df.loc[df['actual_shipping_fee_num'] > 100, 'is_cost_leakage'] = 1
+        except:
+            pass
+    
+    # 4. SLA at Risk: Lead times exceeding targets
+    df.loc[(df['oc_to_fa_days'] > 2.5) | (df['rfh_to_fa_days'] > 2.0), 'is_sla_at_risk'] = 1
+    
     return df
 
 def apply_filters(df, oc_dates, rfh_dates, transit_dates, final_dates, granularity, three_pl):
