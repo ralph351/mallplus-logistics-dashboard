@@ -294,7 +294,7 @@ try:
             )
             
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=[str(i) for i in daily_cpp.index], y=daily_cpp.values, mode='lines+markers', name='CPP'))
+            fig.add_trace(go.Scatter(x=[str(i).split()[0] if ' ' in str(i) else str(i) for i in daily_cpp.index], y=daily_cpp.values, mode='lines+markers', name='CPP'))
             fig.add_hline(y=81.04, line_dash="dash", line_color="red", annotation_text="Target")
             fig.update_layout(title="CPP Trend", height=300, showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
@@ -327,7 +327,7 @@ try:
             )
             
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=[str(i) for i in daily_pickup.index], y=daily_pickup.values, mode='lines+markers'))
+            fig.add_trace(go.Scatter(x=[str(i).split()[0] if ' ' in str(i) else str(i) for i in daily_pickup.index], y=daily_pickup.values, mode='lines+markers'))
             fig.add_hline(y=95, line_dash="dash", line_color="red", annotation_text="Target")
             fig.update_layout(title="Pickup Compliance Trend", height=300, showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
@@ -352,7 +352,7 @@ try:
             )
             
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=[str(i) for i in daily_forward.index], y=daily_forward.values, mode='lines+markers'))
+            fig.add_trace(go.Scatter(x=[str(i).split()[0] if ' ' in str(i) else str(i) for i in daily_forward.index], y=daily_forward.values, mode='lines+markers'))
             fig.add_hline(y=92, line_dash="dash", line_color="red", annotation_text="Target")
             fig.update_layout(title="Forward Delivery Compliance Trend", height=300, showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
@@ -418,7 +418,7 @@ try:
                 if len(daily_rfh_fa) > 0:
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(
-                        x=[str(i) for i in daily_rfh_fa.index],
+                        x=[str(i).split()[0] if ' ' in str(i) else str(i) for i in daily_rfh_fa.index],
                         y=daily_rfh_fa.values,
                         mode='lines+markers',
                         name='RFH→FA (days)',
@@ -440,7 +440,7 @@ try:
                 if len(daily_oc_fa) > 0:
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(
-                        x=[str(i) for i in daily_oc_fa.index],
+                        x=[str(i).split()[0] if ' ' in str(i) else str(i) for i in daily_oc_fa.index],
                         y=daily_oc_fa.values,
                         mode='lines+markers',
                         name='OC→FA (days)',
@@ -463,7 +463,7 @@ try:
                 if len(daily_oc_rfh) > 0:
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(
-                        x=[str(i) for i in daily_oc_rfh.index],
+                        x=[str(i).split()[0] if ' ' in str(i) else str(i) for i in daily_oc_rfh.index],
                         y=daily_oc_rfh.values,
                         mode='lines+markers',
                         name='OC→RFH (days)',
@@ -485,7 +485,7 @@ try:
                 if len(daily_rfh_fa_p90) > 0:
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(
-                        x=[str(i) for i in daily_rfh_fa_p90.index],
+                        x=[str(i).split()[0] if ' ' in str(i) else str(i) for i in daily_rfh_fa_p90.index],
                         y=daily_rfh_fa_p90.values,
                         mode='lines+markers',
                         name='RFH→FA P90 (days)',
@@ -517,7 +517,7 @@ try:
             )
             
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=[str(i) for i in daily_failed.index], y=daily_failed.values, mode='lines+markers'))
+            fig.add_trace(go.Scatter(x=[str(i).split()[0] if ' ' in str(i) else str(i) for i in daily_failed.index], y=daily_failed.values, mode='lines+markers'))
             fig.add_hline(y=failed_target, line_dash="dash", line_color="red", annotation_text="Target")
             fig.update_layout(title="Failed Delivery Trend", height=300, showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
@@ -566,7 +566,7 @@ try:
             )
             
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=[str(i) for i in daily_forward_breach.index], y=daily_forward_breach.values, mode='lines+markers'))
+            fig.add_trace(go.Scatter(x=[str(i).split()[0] if ' ' in str(i) else str(i) for i in daily_forward_breach.index], y=daily_forward_breach.values, mode='lines+markers'))
             fig.add_hline(y=breach_target, line_dash="dash", line_color="red")
             fig.update_layout(title="Forward Journey Breach Trend", height=300, showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
@@ -578,7 +578,7 @@ try:
             )
             
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=[str(i) for i in daily_rts_breach.index], y=daily_rts_breach.values, mode='lines+markers'))
+            fig.add_trace(go.Scatter(x=[str(i).split()[0] if ' ' in str(i) else str(i) for i in daily_rts_breach.index], y=daily_rts_breach.values, mode='lines+markers'))
             fig.add_hline(y=breach_target, line_dash="dash", line_color="red")
             fig.update_layout(title="RTS Journey Breach Trend", height=300, showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
@@ -619,7 +619,7 @@ try:
             )
             
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=[str(i) for i in daily_lost.index], y=daily_lost.values, mode='lines+markers'))
+            fig.add_trace(go.Scatter(x=[str(i).split()[0] if ' ' in str(i) else str(i) for i in daily_lost.index], y=daily_lost.values, mode='lines+markers'))
             fig.add_hline(y=ld_target, line_dash="dash", line_color="red", annotation_text="Target")
             fig.update_layout(title="Lost Trend", height=300, showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
@@ -631,7 +631,7 @@ try:
             )
             
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=[str(i) for i in daily_damaged.index], y=daily_damaged.values, mode='lines+markers'))
+            fig.add_trace(go.Scatter(x=[str(i).split()[0] if ' ' in str(i) else str(i) for i in daily_damaged.index], y=daily_damaged.values, mode='lines+markers'))
             fig.add_hline(y=ld_target, line_dash="dash", line_color="red", annotation_text="Target")
             fig.update_layout(title="Damaged Trend", height=300, showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
@@ -640,4 +640,22 @@ except:
 
 st.divider()
 
-st.caption("Dashboard v3.0 | Multi-dimensional filtering | Independent timestamp anchors | ISO week granularity")
+# ============================================================================
+# SECTION 6: ANOMALY DETECTION (Coming Soon)
+# ============================================================================
+
+with st.expander("🔍 Anomaly Detection & Proactive Tools (Coming Soon)"):
+    st.markdown("""
+    ### Planned Tools:
+    - **Fake Attempt Detection**: Identify pickup/delivery attempts outside seller/buyer hours or far from location
+    - **Theft & Tampering Detection**: Weight variance, ePOD changes, and stagnation flags
+    - **Habitual Offender Tracking**: Couriers with high failure rates or bulk FD tagging
+    - **Cost Leakage Detection**: Rate card mismatches and improper allocations
+    - **SLA Breach Early Warning**: Predict failures before they happen
+    - **Claims Management**: Clawback tracking and contract compliance
+    """)
+    st.caption("Anomaly Detection module - Integration with Sage Bot")
+
+st.divider()
+
+st.caption("Dashboard v3.0 | Multi-dimensional filtering | Independent timestamp anchors | Anomaly detection coming soon")
