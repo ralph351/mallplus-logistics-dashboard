@@ -87,8 +87,11 @@ def prepare_data(df):
     
     for col in timestamp_cols:
         if col in df.columns:
-            # Handle ISO format timestamps with explicit format
-            df[col] = pd.to_datetime(df[col], format='ISO8601', errors='coerce')
+            # Handle ISO format timestamps - suppress warning for explicit coercion
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore')
+                df[col] = pd.to_datetime(df[col], errors='coerce')
     
     # Lead time calculations (in days)
     if 'order_create_ts' in df.columns and 'lvl1_REQUEST_FOR_HANDOVER_ts' in df.columns:
