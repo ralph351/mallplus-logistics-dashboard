@@ -83,7 +83,7 @@ def load_data():
 
 def prepare_data(df):
     """Convert columns and create helper fields."""
-    timestamp_cols = ['order_create_ts', 'lvl1_REQUEST_FOR_HANDOVER_ts', 'lvl1_IN_TRANSIT_ts', 'lvl1_final_status_ts', 'lvl2_first_attempt_ts', 'domestic_delivered_ts']
+    timestamp_cols = ['order_create_ts', 'lvl1_READY_FOR_HANDOVER_ts', 'lvl1_IN_TRANSIT_ts', 'lvl1_final_status_ts', 'lvl2_first_attempt_ts', 'domestic_delivered_ts']
     
     for col in timestamp_cols:
         if col in df.columns:
@@ -100,8 +100,8 @@ def prepare_data(df):
     if 'order_create_ts' in df.columns and 'lvl2_first_attempt_ts' in df.columns:
         df['oc_to_fa_days'] = (df['lvl2_first_attempt_ts'] - df['order_create_ts']).dt.total_seconds() / 86400
     
-    if 'lvl1_REQUEST_FOR_HANDOVER_ts' in df.columns and 'lvl2_first_attempt_ts' in df.columns:
-        df['rfh_to_fa_days'] = (df['lvl2_first_attempt_ts'] - df['lvl1_REQUEST_FOR_HANDOVER_ts']).dt.total_seconds() / 86400
+    if 'lvl1_READY_FOR_HANDOVER_ts' in df.columns and 'lvl2_first_attempt_ts' in df.columns:
+        df['rfh_to_fa_days'] = (df['lvl2_first_attempt_ts'] - df['lvl1_READY_FOR_HANDOVER_ts']).dt.total_seconds() / 86400
     
     return df
 
@@ -120,7 +120,7 @@ def apply_filters(df, oc_dates, rfh_dates, transit_dates, final_dates, granulari
     
     if rfh_dates:
         rfh_start, rfh_end = pd.to_datetime(rfh_dates[0]), pd.to_datetime(rfh_dates[1]) + timedelta(days=1)
-        df_filtered = df_filtered[(df_filtered['lvl1_REQUEST_FOR_HANDOVER_ts'] >= rfh_start) & (df_filtered['lvl1_REQUEST_FOR_HANDOVER_ts'] < rfh_end)]
+        df_filtered = df_filtered[(df_filtered['lvl1_READY_FOR_HANDOVER_ts'] >= rfh_start) & (df_filtered['lvl1_READY_FOR_HANDOVER_ts'] < rfh_end)]
     
     if transit_dates:
         transit_start, transit_end = pd.to_datetime(transit_dates[0]), pd.to_datetime(transit_dates[1]) + timedelta(days=1)
@@ -311,7 +311,7 @@ st.markdown("## 3️⃣ Operations")
 
 # 3a. Pickup Compliance (anchored to lvl1_REQUEST_FOR_HANDOVER_ts)
 try:
-    if 'lvl1_REQUEST_FOR_HANDOVER_ts' in df_filtered.columns:
+    if 'lvl1_READY_FOR_HANDOVER_ts' in df_filtered.columns:
         pickup_comp = (df_filtered['pickup_sla_compliance'] == 'pass').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
         pickup_target = 95.0
         pickup_delta = pickup_comp - pickup_target
@@ -322,7 +322,7 @@ try:
             st.metric("3a. Pickup Compliance %", f"{pickup_comp:.1f}%", delta=f"{pickup_delta:.1f}% vs {pickup_target}%", delta_color=pickup_delta_color)
         
         with col2:
-            daily_pickup = df_filtered.groupby(get_time_column(df_filtered['lvl1_REQUEST_FOR_HANDOVER_ts'], granularity)).apply(
+            daily_pickup = df_filtered.groupby(get_time_column(df_filtered['lvl1_READY_FOR_HANDOVER_ts'], granularity)).apply(
                 lambda x: (x['pickup_sla_compliance'] == 'pass').sum() / len(x) * 100
             )
             
