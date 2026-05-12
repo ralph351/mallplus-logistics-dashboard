@@ -402,6 +402,101 @@ try:
                 st.metric("3f. RFH to FA P90 (days)", "N/A")
     else:
         st.info("Lead time data unavailable - check if timestamp columns are populated")
+    
+    # Lead time trend charts
+    if has_lead_time_data and 'lvl1_final_status_ts' in df_filtered.columns:
+        st.markdown("#### Lead Time Trends")
+        col1, col2 = st.columns(2)
+        
+        # RFH to FA trend (most important for operations)
+        try:
+            with col1:
+                daily_rfh_fa = df_filtered.groupby(get_time_column(df_filtered['lvl1_final_status_ts'], granularity))['rfh_to_fa_days'].apply(
+                    lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan
+                ).dropna()
+                
+                if len(daily_rfh_fa) > 0:
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=[str(i) for i in daily_rfh_fa.index],
+                        y=daily_rfh_fa.values,
+                        mode='lines+markers',
+                        name='RFH→FA (days)',
+                        line=dict(color='steelblue')
+                    ))
+                    fig.add_hline(y=rfh_fa_target, line_dash="dash", line_color="orange", annotation_text="Target")
+                    fig.update_layout(title="RFH to FA Trend", height=300, showlegend=False, hovermode='x')
+                    st.plotly_chart(fig, use_container_width=True)
+        except:
+            pass
+        
+        # OC to FA trend
+        try:
+            with col2:
+                daily_oc_fa = df_filtered.groupby(get_time_column(df_filtered['lvl1_final_status_ts'], granularity))['oc_to_fa_days'].apply(
+                    lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan
+                ).dropna()
+                
+                if len(daily_oc_fa) > 0:
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=[str(i) for i in daily_oc_fa.index],
+                        y=daily_oc_fa.values,
+                        mode='lines+markers',
+                        name='OC→FA (days)',
+                        line=dict(color='darkgreen')
+                    ))
+                    fig.add_hline(y=oc_fa_target, line_dash="dash", line_color="orange", annotation_text="Target")
+                    fig.update_layout(title="OC to FA Trend", height=300, showlegend=False, hovermode='x')
+                    st.plotly_chart(fig, use_container_width=True)
+        except:
+            pass
+        
+        # OC to RFH trend
+        try:
+            col1, col2 = st.columns(2)
+            with col1:
+                daily_oc_rfh = df_filtered.groupby(get_time_column(df_filtered['lvl1_final_status_ts'], granularity))['oc_to_rfh_days'].apply(
+                    lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan
+                ).dropna()
+                
+                if len(daily_oc_rfh) > 0:
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=[str(i) for i in daily_oc_rfh.index],
+                        y=daily_oc_rfh.values,
+                        mode='lines+markers',
+                        name='OC→RFH (days)',
+                        line=dict(color='purple')
+                    ))
+                    fig.add_hline(y=oc_rfh_target, line_dash="dash", line_color="orange", annotation_text="Target")
+                    fig.update_layout(title="OC to RFH Trend", height=300, showlegend=False, hovermode='x')
+                    st.plotly_chart(fig, use_container_width=True)
+        except:
+            pass
+        
+        # RFH to FA P90 trend
+        try:
+            with col2:
+                daily_rfh_fa_p90 = df_filtered.groupby(get_time_column(df_filtered['lvl1_final_status_ts'], granularity))['rfh_to_fa_days'].apply(
+                    lambda x: x.dropna().quantile(0.9) if len(x.dropna()) > 0 else np.nan
+                ).dropna()
+                
+                if len(daily_rfh_fa_p90) > 0:
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=[str(i) for i in daily_rfh_fa_p90.index],
+                        y=daily_rfh_fa_p90.values,
+                        mode='lines+markers',
+                        name='RFH→FA P90 (days)',
+                        line=dict(color='darkred')
+                    ))
+                    fig.add_hline(y=rfh_fa_p90_target, line_dash="dash", line_color="orange", annotation_text="Target")
+                    fig.update_layout(title="RFH to FA P90 Trend", height=300, showlegend=False, hovermode='x')
+                    st.plotly_chart(fig, use_container_width=True)
+        except:
+            pass
+
 except Exception as e:
     st.info(f"Lead time data unavailable: {str(e)}")
 
