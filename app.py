@@ -112,6 +112,13 @@ def prepare_data(df):
     """Convert columns and create helper fields."""
     timestamp_cols = ['order_create_ts', 'lvl1_READY_FOR_HANDOVER_ts', 'lvl1_IN_TRANSIT_ts', 'lvl1_final_status_ts', 'lvl2_first_attempt_ts', 'domestic_delivered_ts']
     
+    # Convert order_create_ts
+    if 'order_create_ts' in df.columns:
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            df['order_create_ts'] = pd.to_datetime(df['order_create_ts'], errors='coerce')
+    
     for col in timestamp_cols:
         if col in df.columns:
             # Handle ISO format timestamps - suppress warning for explicit coercion
@@ -119,6 +126,47 @@ def prepare_data(df):
             with warnings.catch_warnings():
                 warnings.simplefilter('ignore')
                 df[col] = pd.to_datetime(df[col], errors='coerce')
+    
+    # ========================================================================
+    # SIMULATE MISSING TIMESTAMPS (for mock data)
+    # ========================================================================
+    # If timestamps don't exist, simulate them based on order_create_ts + status
+    if 'order_create_ts' in df.columns:
+        # PENDING_ARRANGE: 0.5-1 day after order_create
+        if 'lvl1_READY_FOR_HANDOVER_ts' not in df.columns or df['lvl1_READY_FOR_HANDOVER_ts'].isna().all():
+            df['lvl1_READY_FOR_HANDOVER_ts'] = df['order_create_ts'] + pd.to_timedelta(
+                np.random.uniform(0.5, 1.5, len(df)), unit='D'
+            )
+        
+        # IN_TRANSIT: 1-2 days after READY_FOR_HANDOVER
+        if 'lvl1_IN_TRANSIT_ts' not in df.columns or df['lvl1_IN_TRANSIT_ts'].isna().all():
+            df['lvl1_IN_TRANSIT_ts'] = df['lvl1_READY_FOR_HANDOVER_ts'] + pd.to_timedelta(
+                np.random.uniform(0.2, 0.5, len(df)), unit='D'
+            )
+        
+        # First Attempt: varies by destination_region (SLA-based)
+        if 'lvl2_first_attempt_ts' not in df.columns or df['lvl2_first_attempt_ts'].isna().all():
+            def get_fa_offset(row):
+                region = row.get('destination_region', 'GMA')
+                # Map region to approximate delivery days
+                region_sla = {
+                    'GMA': 2, 'Luzon 1': 2, 'Luzon 2': 3, 'Luzon 3': 7,
+                    'Luzon 4': 18, 'Visayas 1': 6, 'Visayas 2': 6,
+                    'Visayas 3': 6, 'Mindanao 1': 8, 'Mindanao 2': 8
+                }
+                base_days = region_sla.get(region, 5)
+                return base_days + np.random.uniform(-1, 1)  # ±1 day variance
+            
+            df['lvl2_first_attempt_ts'] = df.apply(
+                lambda row: row['order_create_ts'] + timedelta(days=get_fa_offset(row)),
+                axis=1
+            )
+        
+        # Final status ts: at or after first attempt
+        if 'lvl1_final_status_ts' not in df.columns or df['lvl1_final_status_ts'].isna().all():
+            df['lvl1_final_status_ts'] = df['lvl2_first_attempt_ts'] + pd.to_timedelta(
+                np.random.uniform(0, 1, len(df)), unit='D'
+            )
     
     # Lead time calculations (in days)
     if 'order_create_ts' in df.columns and 'lvl1_READY_FOR_HANDOVER_ts' in df.columns:
