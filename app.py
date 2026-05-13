@@ -737,28 +737,24 @@ with st.expander("🔍 Anomaly Detection Dashboard"):
     
     try:
         fake_attempts = (df_filtered['is_fake_attempt'] == 1).sum()
-        theft_risks = (df_filtered['is_theft_risk'] == 1).sum()
         cost_leaks = (df_filtered['is_cost_leakage'] == 1).sum()
         sla_risks = (df_filtered['is_sla_at_risk'] == 1).sum()
-        total_anomalies = fake_attempts + theft_risks + cost_leaks + sla_risks
+        total_anomalies = fake_attempts + cost_leaks + sla_risks
         
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3 = st.columns(3)
         with col1:
             pct = fake_attempts/max(len(df_filtered),1)*100
-            st.metric("🚨 Fake Attempts", fake_attempts, delta=f"{pct:.1f}%")
+            st.metric("🚨 Fake Attempts (FM/LM Geo)", fake_attempts, delta=f"{pct:.1f}%")
         with col2:
-            pct = theft_risks/max(len(df_filtered),1)*100
-            st.metric("📦 Theft Risk", theft_risks, delta=f"{pct:.1f}%")
-        with col3:
             pct = cost_leaks/max(len(df_filtered),1)*100
-            st.metric("💰 Cost Leakage", cost_leaks, delta=f"{pct:.1f}%")
-        with col4:
+            st.metric("💰 Cost Leakage (CPP)", cost_leaks, delta=f"{pct:.1f}%")
+        with col3:
             pct = sla_risks/max(len(df_filtered),1)*100
             st.metric("⏱️ SLA at Risk", sla_risks, delta=f"{pct:.1f}%")
         
         st.divider()
         
-        tab_fake, tab_theft, tab_cost, tab_sla = st.tabs(["Fake Attempts", "Theft Risk", "Cost Leakage", "SLA Risk"])
+        tab_fake, tab_cost, tab_sla = st.tabs(["Fake Attempts", "Cost Leakage", "SLA Risk"])
         
         possible_cols = ['tracking_number', 'order_number', 'final_status', 'lm_3pl_name', 'actual_shipping_fee', 'rfh_to_fa_days']
         display_cols = [col for col in possible_cols if col in df_filtered.columns]
@@ -766,23 +762,15 @@ with st.expander("🔍 Anomaly Detection Dashboard"):
         with tab_fake:
             if fake_attempts > 0:
                 fake_df = df_filtered[df_filtered['is_fake_attempt'] == 1][display_cols].head(20)
-                st.write(f"**{fake_attempts} failed deliveries** beyond expected timeframe (>3 days)")
+                st.write(f"**{fake_attempts} parcels** with FM-GEO or LM-GEO flags (geolocation >=1km from address)")
                 st.dataframe(fake_df, use_container_width=True)
             else:
                 st.info("No fake attempts detected")
         
-        with tab_theft:
-            if theft_risks > 0:
-                theft_df = df_filtered[df_filtered['is_theft_risk'] == 1][display_cols].head(20)
-                st.write(f"**{theft_risks} parcels** marked as RTS or LOST")
-                st.dataframe(theft_df, use_container_width=True)
-            else:
-                st.info("No theft risks detected")
-        
         with tab_cost:
             if cost_leaks > 0:
                 cost_df = df_filtered[df_filtered['is_cost_leakage'] == 1][display_cols].head(20)
-                st.write(f"**{cost_leaks} parcels** with CPP exceeding PHP 100")
+                st.write(f"**{cost_leaks} parcels** with shipping fee exceeding PHP 81.04")
                 st.dataframe(cost_df, use_container_width=True)
             else:
                 st.info("No cost leakage detected")
