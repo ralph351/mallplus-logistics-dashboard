@@ -13,6 +13,33 @@ import numpy as np
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import os
+from math import radians, sin, cos, sqrt, atan2
+
+# Geolocation utilities
+def parse_geolocation(geo_string):
+    """Parse 'lat, lon' string into tuple (lat, lon)"""
+    try:
+        if not geo_string or pd.isna(geo_string):
+            return (None, None)
+        parts = [p.strip() for p in str(geo_string).split(',')]
+        if len(parts) == 2:
+            return (float(parts[0]), float(parts[1]))
+        return (None, None)
+    except (ValueError, TypeError, AttributeError):
+        return (None, None)
+
+def haversine_distance(lat1, lon1, lat2, lon2):
+    """Calculate distance in km between two lat/lon points"""
+    try:
+        lat1, lon1, lat2, lon2 = float(lat1), float(lon1), float(lat2), float(lon2)
+        R = 6371  # Earth radius in km
+        lat1_rad, lat2_rad = radians(lat1), radians(lat2)
+        delta_lat, delta_lon = radians(lat2 - lat1), radians(lon2 - lon1)
+        a = sin(delta_lat/2)**2 + cos(lat1_rad) * cos(lat2_rad) * sin(delta_lon/2)**2
+        c = 2 * atan2(sqrt(a), sqrt(1-a))
+        return R * c
+    except (ValueError, TypeError):
+        return None
 
 # ============================================================================
 # PAGE CONFIG
@@ -127,6 +154,42 @@ def prepare_data(df):
     
     # 4. SLA at Risk: Lead times exceeding targets
     df.loc[(df['oc_to_fa_days'] > 2.5) | (df['rfh_to_fa_days'] > 2.0), 'is_sla_at_risk'] = 1
+    
+    # ========================================================================
+    # LOGISTIC SENTINEL v2.0: Geolocation-Based Anomaly Detection
+    # ========================================================================
+    
+    # FM-GEO: Pickup failed >=1km from origin
+    if 'origin_geolocation' in df.columns and 'domestic_pickup_sign_in_failure_geolocation' in df.columns:
+        def check_fm_geo(row):
+            origin_geo = row['origin_geolocation']
+            failure_geo = row['domestic_pickup_sign_in_failure_geolocation']
+            if pd.notna(origin_geo) and pd.notna(failure_geo):
+                lat1, lon1 = parse_geolocation(origin_geo)
+                lat2, lon2 = parse_geolocation(failure_geo)
+                if lat1 is not None and lat2 is not None:
+                    dist = haversine_distance(lat1, lon1, lat2, lon2)
+                    return 1 if dist is not None and dist >= 1.0 else 0
+            return 0
+        
+        df['flag_fm_geo'] = df.apply(check_fm_geo, axis=1)
+        df.loc[df['flag_fm_geo'] == 1, 'is_fake_attempt'] = 1
+    
+    # LM-GEO: Delivery failed >=1km from destination
+    if 'destination_geolocation' in df.columns and 'domestic_1st_attempt_failed_geolocation' in df.columns:
+        def check_lm_geo(row):
+            dest_geo = row['destination_geolocation']
+            failure_geo = row['domestic_1st_attempt_failed_geolocation']
+            if pd.notna(dest_geo) and pd.notna(failure_geo):
+                lat1, lon1 = parse_geolocation(dest_geo)
+                lat2, lon2 = parse_geolocation(failure_geo)
+                if lat1 is not None and lat2 is not None:
+                    dist = haversine_distance(lat1, lon1, lat2, lon2)
+                    return 1 if dist is not None and dist >= 1.0 else 0
+            return 0
+        
+        df['flag_lm_geo'] = df.apply(check_lm_geo, axis=1)
+        df.loc[df['flag_lm_geo'] == 1, 'is_fake_attempt'] = 1
     
     return df
 
