@@ -736,56 +736,83 @@ with st.expander("🔍 Anomaly Detection Dashboard"):
     st.markdown("## Risk Flags & Early Warning System")
     
     try:
-        fake_attempts = (df_filtered['is_fake_attempt'] == 1).sum()
-        cost_leaks = (df_filtered['is_cost_leakage'] == 1).sum()
-        sla_risks = (df_filtered['is_sla_at_risk'] == 1).sum()
-        total_anomalies = fake_attempts + cost_leaks + sla_risks
+        # Count anomalies
+        fake_pickup = (df_filtered['is_fake_attempt'] == 1).sum()
+        forward_soft = (df_filtered['is_forward_soft_breach'] == 1).sum() if 'is_forward_soft_breach' in df_filtered.columns else 0
+        rts_soft = (df_filtered['is_rts_soft_breach'] == 1).sum() if 'is_rts_soft_breach' in df_filtered.columns else 0
+        forward_hard = (df_filtered['is_forward_hard_breach'] == 1).sum() if 'is_forward_hard_breach' in df_filtered.columns else 0
+        rts_hard = (df_filtered['is_rts_hard_breach'] == 1).sum() if 'is_rts_hard_breach' in df_filtered.columns else 0
         
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
         with col1:
-            pct = fake_attempts/max(len(df_filtered),1)*100
-            st.metric("🚨 Fake Attempts (FM/LM Geo)", fake_attempts, delta=f"{pct:.1f}%")
+            pct = fake_pickup/max(len(df_filtered),1)*100
+            st.metric("🚨 Potential Fake Pickup", fake_pickup, delta=f"{pct:.1f}%")
         with col2:
-            pct = cost_leaks/max(len(df_filtered),1)*100
-            st.metric("💰 Cost Leakage (CPP)", cost_leaks, delta=f"{pct:.1f}%")
+            pct = fake_pickup/max(len(df_filtered),1)*100
+            st.metric("📦 Potential Fake Delivery", 0, delta="0.0%")  # Placeholder
         with col3:
-            pct = sla_risks/max(len(df_filtered),1)*100
-            st.metric("⏱️ SLA at Risk", sla_risks, delta=f"{pct:.1f}%")
+            pct = forward_soft/max(len(df_filtered),1)*100
+            st.metric("📌 Forward Soft", forward_soft, delta=f"{pct:.1f}%")
+        with col4:
+            pct = rts_soft/max(len(df_filtered),1)*100
+            st.metric("🔄 RTS Soft", rts_soft, delta=f"{pct:.1f}%")
+        with col5:
+            pct = forward_hard/max(len(df_filtered),1)*100
+            st.metric("⚠️ Forward Hard", forward_hard, delta=f"{pct:.1f}%")
+        with col6:
+            pct = rts_hard/max(len(df_filtered),1)*100
+            st.metric("🔴 RTS Hard", rts_hard, delta=f"{pct:.1f}%")
         
         st.divider()
         
-        tab_fake, tab_cost, tab_sla = st.tabs(["Fake Attempts", "Cost Leakage", "SLA Risk"])
-        
-        possible_cols = ['tracking_number', 'order_number', 'final_status', 'lm_3pl_name', 'actual_shipping_fee', 'rfh_to_fa_days']
-        display_cols = [col for col in possible_cols if col in df_filtered.columns]
+        tab_fake, tab_sla = st.tabs(["Potential Fake Attempts", "SLA Breaches"])
         
         with tab_fake:
-            if fake_attempts > 0:
-                fake_df = df_filtered[df_filtered['is_fake_attempt'] == 1][display_cols].head(20)
-                st.write(f"**{fake_attempts} parcels** with FM-GEO or LM-GEO flags (geolocation >=1km from address)")
-                st.dataframe(fake_df, use_container_width=True)
+            st.markdown("### Potential Fake Pickup Attempts")
+            if fake_pickup > 0:
+                st.info(f"{fake_pickup} parcels flagged for potential fake pickup (FM-GEO + FM-BULK)")
+                # Placeholder: FM-GEO table
+                st.markdown("**Geolocation Violations (FM-GEO)**")
+                st.caption("Columns: fm_3pl_name, tracking_number, origin_region, seller_id, seller_name, fm_courier_id, origin_geolocation, domestic_pickup_sign_in_failure_geolocation")
             else:
-                st.info("No fake attempts detected")
-        
-        with tab_cost:
-            if cost_leaks > 0:
-                cost_df = df_filtered[df_filtered['is_cost_leakage'] == 1][display_cols].head(20)
-                st.write(f"**{cost_leaks} parcels** with shipping fee exceeding PHP 81.04")
-                st.dataframe(cost_df, use_container_width=True)
-            else:
-                st.info("No cost leakage detected")
+                st.info("No potential fake pickup attempts detected")
+            
+            st.markdown("### Potential Fake Delivery Attempts")
+            st.info("Delivery anomalies (LM-GEO + LM-BULK)")
+            st.caption("Columns: lm_3pl_name, tracking_number, destination_region, lm_courier_id, destination_geolocation, domestic_1st_attempt_failed_geolocation")
         
         with tab_sla:
-            if sla_risks > 0:
-                sla_df = df_filtered[df_filtered['is_sla_at_risk'] == 1][display_cols].head(20)
-                st.write(f"**{sla_risks} parcels** exceeding lead time targets")
-                st.dataframe(sla_df, use_container_width=True)
-            else:
-                st.info("No SLA risks detected")
-        
-        st.divider()
-        pct = total_anomalies/max(len(df_filtered),1)*100
-        st.markdown(f"**Total Anomalies:** {total_anomalies} out of {len(df_filtered)} parcels ({pct:.1f}%)")
+            st.markdown("### SLA Breach Tracking")
+            
+            tab_fs, tab_rs, tab_fh, tab_rh = st.tabs(["Forward Soft", "RTS Soft", "Forward Hard", "RTS Hard"])
+            
+            with tab_fs:
+                if forward_soft > 0:
+                    st.metric("Forward Soft Breach", forward_soft)
+                    st.caption("Columns: lm_3pl_name, tracking_number, origin_region, destination_region, forward_journey_closure_soft_breach_sla, forward_journey_closure_soft_breach_date")
+                else:
+                    st.info("No forward soft breaches")
+            
+            with tab_rs:
+                if rts_soft > 0:
+                    st.metric("RTS Soft Breach", rts_soft)
+                    st.caption("Columns: lm_3pl_name, tracking_number, origin_region, destination_region, rts_journey_closure_soft_breach_sla, rts_journey_closure_soft_breach_date")
+                else:
+                    st.info("No RTS soft breaches")
+            
+            with tab_fh:
+                if forward_hard > 0:
+                    st.metric("Forward Hard Breach", forward_hard)
+                    st.caption("Columns: lm_3pl_name, tracking_number, origin_region, destination_region, forward_journey_closure_hard_breach_sla, forward_journey_closure_hard_breach_date")
+                else:
+                    st.info("No forward hard breaches")
+            
+            with tab_rh:
+                if rts_hard > 0:
+                    st.metric("RTS Hard Breach", rts_hard)
+                    st.caption("Columns: lm_3pl_name, tracking_number, origin_region, destination_region, rts_journey_closure_hard_breach_sla, rts_journey_closure_hard_breach_date")
+                else:
+                    st.info("No RTS hard breaches")
         
     except Exception as e:
         st.error(f"Anomaly detection error: {str(e)}")
