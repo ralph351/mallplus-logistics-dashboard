@@ -1,6 +1,6 @@
 """
-MallPlus Logistics Dashboard v3.1 - Fixed Data Handling
-Comprehensive KPI dashboard with anomaly detection
+MallPlus Logistics Dashboard v4.0 - Stable Production Build
+Direct CSV loading from Google Sheets export (no API fragility)
 """
 
 import streamlit as st
@@ -9,9 +9,8 @@ import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, timedelta
 import numpy as np
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-import os
+import requests
+from io import StringIO
 
 # ============================================================================
 # PAGE CONFIG
@@ -24,72 +23,35 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st.title("🚚 MallPlus Logistics Dashboard v3.2")
-st.markdown("**Professional Multi-Dimensional Analytics** | Last Updated: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S GMT+8"))
+st.title("🚚 MallPlus Logistics Dashboard v4.0")
+st.markdown("**Production Ready** | Last Updated: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S GMT+8"))
 
 # ============================================================================
-# DATA LOADING
+# DATA LOADING - Direct CSV from Google Sheets (bulletproof)
 # ============================================================================
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=300)
 def load_data():
-    """Load data from Google Sheets - handle duplicates gracefully."""
+    """Load data directly from Google Sheets CSV export - no API nonsense."""
     try:
-        try:
-            credentials_dict = st.secrets["google_credentials"]
-            creds = service_account.Credentials.from_service_account_info(
-                credentials_dict,
-                scopes=['https://www.googleapis.com/auth/spreadsheets.readonly']
-            )
-        except (KeyError, FileNotFoundError):
-            creds_path = os.path.expanduser("~/.openclaw/workspace-logistics/secrets/google-sa-key.json")
-            creds = service_account.Credentials.from_service_account_file(
-                creds_path,
-                scopes=['https://www.googleapis.com/auth/spreadsheets.readonly']
-            )
-        
-        sheets = build('sheets', 'v4', credentials=creds)
+        # Export URL: CSV export from Simulated Data sheet
         sheet_id = "1L5qyfPzh2fmiR6-F1TKB2Op03xMzyBn3XmqaTpLOU_A"
+        gid = "0"  # Simulated Data sheet ID
+        csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
         
-        result = sheets.spreadsheets().values().get(
-            spreadsheetId=sheet_id,
-            range="'Simulated Data'"
-        ).execute()
+        response = requests.get(csv_url, timeout=10)
+        response.raise_for_status()
         
-        values = result.get('values', [])
+        # Load CSV into pandas
+        df = pd.read_csv(StringIO(response.text))
         
-        if len(values) > 1:
-            headers = values[0]
-            data = values[1:]
-            
-            # Handle duplicate columns by keeping first occurrence
-            seen = {}
-            unique_headers = []
-            duplicate_indices = set()
-            
-            for i, col in enumerate(headers):
-                if col in seen:
-                    duplicate_indices.add(i)
-                else:
-                    seen[col] = i
-                    unique_headers.append(col)
-            
-            # Filter out duplicate columns
-            filtered_data = []
-            for row in data:
-                filtered_row = [val for i, val in enumerate(row) if i not in duplicate_indices]
-                while len(filtered_row) < len(unique_headers):
-                    filtered_row.append('')
-                filtered_data.append(filtered_row)
-            
-            df = pd.DataFrame(filtered_data, columns=unique_headers)
-            return df
-        else:
-            st.error("No data found in sheet")
-            return pd.DataFrame()
+        # Clean up: Remove any duplicate columns
+        df = df.loc[:, ~df.columns.duplicated(keep='first')]
+        
+        return df
     
     except Exception as e:
-        st.error(f"Error loading data: {str(e)}")
+        st.error(f"❌ Failed to load data: {str(e)}")
         return pd.DataFrame()
 
 # ============================================================================
@@ -97,22 +59,24 @@ def load_data():
 # ============================================================================
 
 def prepare_data(df):
-    """Prepare data: convert timestamps, ensure columns exist."""
-    # Remove duplicate columns (keep first occurrence)
+    """Minimal, safe data prep."""
+    if df.empty:
+        return df
+    
+    # Remove duplicates early
     df = df.loc[:, ~df.columns.duplicated(keep='first')]
     
-    # Safe timestamp conversion
+    # Convert timestamp columns - flexible parsing
     timestamp_cols = ['order_create_ts', 'lvl1_READY_FOR_HANDOVER_ts', 'lvl1_IN_TRANSIT_ts',
-                      'lvl1_final_status_ts', 'lvl2_first_attempt_ts', 'domestic_delivered_ts']
+                      'lvl1_final_status_ts', 'lvl2_first_attempt_ts', 'domestic_delivered_ts',
+                      'forward_journey_closure_soft_breach_date', 'forward_journey_closure_hard_breach_date',
+                      'rts_journey_closure_soft_breach_date', 'rts_journey_closure_hard_breach_date']
     
     for col in timestamp_cols:
         if col in df.columns:
-            try:
-                df[col] = pd.to_datetime(df[col], errors='coerce', format='%Y-%m-%dT%H:%M:%S')
-            except:
-                pass
+            df[col] = pd.to_datetime(df[col], errors='coerce')
     
-    # Ensure numeric columns
+    # Convert numeric columns
     numeric_cols = ['system_chargeable_weight', 'actual_chargeable_weight', 
                     'estimated_shipping_fee', 'actual_shipping_fee',
                     'forward_journey_closure_soft_breach_sla', 'forward_journey_closure_hard_breach_sla',
@@ -122,7 +86,7 @@ def prepare_data(df):
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
     
-    # Ensure flag columns are numeric (0/1)
+    # Ensure flag columns are 0/1
     flag_cols = ['flag_fake_attempt_fm_geolocation', 'is_forward_soft_breach', 'is_forward_hard_breach',
                  'is_rts_soft_breach', 'is_rts_hard_breach']
     
@@ -133,17 +97,17 @@ def prepare_data(df):
     return df
 
 # ============================================================================
-# LOAD & PREPARE
+# LOAD & PREP
 # ============================================================================
 
 df = load_data()
 if df.empty:
-    st.error("📊 Failed to load data. Please check your Google Sheets connection.")
+    st.error("📊 No data loaded. Check your connection or sheet URL.")
     st.stop()
 
-st.info(f"✅ Loaded {len(df)} orders with {len(df.columns)} columns")
-
 df = prepare_data(df)
+
+st.info(f"✅ Loaded {len(df):,} orders | {len(df.columns)} columns | Ready")
 
 # ============================================================================
 # FILTERS
@@ -156,13 +120,13 @@ with col1:
     three_pl_options = ["All 3PLs"]
     if 'lm_3pl_name' in df.columns:
         three_pl_options += sorted(df['lm_3pl_name'].dropna().unique().tolist())
-    three_pl = st.selectbox("3PL Partner", three_pl_options, help="Select 3PL or view all")
+    three_pl = st.selectbox("3PL Partner", three_pl_options)
 
 with col2:
     if 'order_create_ts' in df.columns and pd.api.types.is_datetime64_any_dtype(df['order_create_ts']):
         min_date = df['order_create_ts'].min().date()
         max_date = df['order_create_ts'].max().date()
-        oc_dates = st.date_input("Order Create Date Range", value=[min_date, max_date], max_value=datetime.now().date())
+        oc_dates = st.date_input("Order Create Date", value=[min_date, max_date], max_value=datetime.now().date())
     else:
         oc_dates = []
 
@@ -191,10 +155,10 @@ if oc_dates and len(oc_dates) == 2 and 'order_create_ts' in df_filtered.columns:
     oc_end = pd.to_datetime(oc_dates[1]) + timedelta(days=1)
     df_filtered = df_filtered[(df_filtered['order_create_ts'] >= oc_start) & (df_filtered['order_create_ts'] < oc_end)]
 
-if region != "All Regions" and 'destination_region' in df_filtered.columns:
+if region and region != "All Regions" and 'destination_region' in df_filtered.columns:
     df_filtered = df_filtered[df_filtered['destination_region'] == region]
 
-if status != "All Status" and 'lvl1_order_logistics_status' in df_filtered.columns:
+if status and status != "All Status" and 'lvl1_order_logistics_status' in df_filtered.columns:
     df_filtered = df_filtered[df_filtered['lvl1_order_logistics_status'] == status]
 
 # ============================================================================
@@ -202,44 +166,37 @@ if status != "All Status" and 'lvl1_order_logistics_status' in df_filtered.colum
 # ============================================================================
 
 st.markdown("### 📈 Summary Metrics")
-
 col1, col2, col3, col4, col5, col6 = st.columns(6)
 
-# Total Orders
 with col1:
     st.metric("Total Orders", len(df_filtered))
 
-# Delivered
 with col2:
     delivered = len(df_filtered[df_filtered['final_status'] == 'DELIVERED']) if 'final_status' in df_filtered.columns else 0
-    st.metric("Delivered", delivered, f"{delivered/len(df_filtered)*100:.1f}%" if len(df_filtered) > 0 else "0%")
+    pct = f"{delivered/len(df_filtered)*100:.1f}%" if len(df_filtered) > 0 else "0%"
+    st.metric("Delivered", delivered, pct)
 
-# Delivery Failed
 with col3:
     failed = len(df_filtered[df_filtered['final_status'] == 'DELIVERY_FAILED']) if 'final_status' in df_filtered.columns else 0
     st.metric("Failed", failed)
 
-# Fake Pickup Attempts
 with col4:
-    fake_pickup = df_filtered['flag_fake_attempt_fm_geolocation'].sum() if 'flag_fake_attempt_fm_geolocation' in df_filtered.columns else 0
-    st.metric("🚨 Fake Pickup Flags", int(fake_pickup))
+    fake_pickup = int(df_filtered['flag_fake_attempt_fm_geolocation'].sum()) if 'flag_fake_attempt_fm_geolocation' in df_filtered.columns else 0
+    st.metric("🚨 Fake Pickup", fake_pickup)
 
-# Forward Soft Breach
 with col5:
-    fwd_soft = df_filtered['is_forward_soft_breach'].sum() if 'is_forward_soft_breach' in df_filtered.columns else 0
-    st.metric("⚠️ Forward Soft Breach", int(fwd_soft))
+    fwd_soft = int(df_filtered['is_forward_soft_breach'].sum()) if 'is_forward_soft_breach' in df_filtered.columns else 0
+    st.metric("⚠️ Fwd Soft", fwd_soft)
 
-# Forward Hard Breach
 with col6:
-    fwd_hard = df_filtered['is_forward_hard_breach'].sum() if 'is_forward_hard_breach' in df_filtered.columns else 0
-    st.metric("🔴 Forward Hard Breach", int(fwd_hard))
+    fwd_hard = int(df_filtered['is_forward_hard_breach'].sum()) if 'is_forward_hard_breach' in df_filtered.columns else 0
+    st.metric("🔴 Fwd Hard", fwd_hard)
 
 # ============================================================================
 # SECTION 1: NETWORK
 # ============================================================================
 
 st.markdown("### 🌐 Network Performance")
-
 col1, col2 = st.columns(2)
 
 with col1:
@@ -257,10 +214,8 @@ with col2:
 # ============================================================================
 
 st.markdown("### 🔍 Anomaly Detection")
-
 tab1, tab2, tab3 = st.tabs(["Potential Fake Pickup", "Potential Fake Delivery", "SLA Breaches"])
 
-# TAB 1: Fake Pickup
 with tab1:
     st.subheader("Fake Pickup Attempts (FM-GEO)")
     
@@ -272,80 +227,78 @@ with tab1:
             cols_to_show = ['fm_3pl_name', 'tracking_number', 'origin_region', 'seller_name', 
                            'fm_courier_id', 'origin_geolocation', 'domestic_pickup_sign_in_failure_geolocation']
             cols_to_show = [c for c in cols_to_show if c in fake_pickup_df.columns]
-            st.dataframe(fake_pickup_df[cols_to_show], use_container_width=True)
+            st.dataframe(fake_pickup_df[cols_to_show], use_container_width=True, height=400)
         else:
             st.info("✅ No fake pickup flags detected")
     else:
         st.warning("Column not found")
 
-# TAB 2: Fake Delivery
 with tab2:
     st.subheader("Fake Delivery Attempts (LM-GEO)")
     
-    fake_delivery_df = df_filtered[df_filtered['final_status'] == 'DELIVERY_FAILED'].copy()
+    fake_delivery_df = df_filtered[df_filtered['final_status'] == 'DELIVERY_FAILED'].copy() if 'final_status' in df_filtered.columns else pd.DataFrame()
     st.metric("Delivery Failed", len(fake_delivery_df))
     
     if len(fake_delivery_df) > 0:
         cols_to_show = ['lm_3pl_name', 'tracking_number', 'destination_region', 'lm_courier_id',
                        'destination_geolocation', 'domestic_1st_attempt_failed_geolocation', 'fd_triggered_geo_flags']
         cols_to_show = [c for c in cols_to_show if c in fake_delivery_df.columns]
-        st.dataframe(fake_delivery_df[cols_to_show], use_container_width=True)
+        st.dataframe(fake_delivery_df[cols_to_show], use_container_width=True, height=400)
     else:
         st.info("✅ No delivery failures detected")
 
-# TAB 3: SLA Breaches
 with tab3:
     sla_tab1, sla_tab2, sla_tab3, sla_tab4 = st.tabs(["Forward Soft", "Forward Hard", "RTS Soft", "RTS Hard"])
     
     with sla_tab1:
         st.subheader("Forward Soft Breach")
-        fwd_soft_df = df_filtered[df_filtered['is_forward_soft_breach'] == 1]
+        fwd_soft_df = df_filtered[df_filtered['is_forward_soft_breach'] == 1] if 'is_forward_soft_breach' in df_filtered.columns else pd.DataFrame()
         st.metric("Parcels", len(fwd_soft_df))
         
         if len(fwd_soft_df) > 0:
             cols_to_show = ['lm_3pl_name', 'tracking_number', 'origin_region', 'destination_region',
                            'forward_journey_closure_soft_breach_sla', 'forward_journey_closure_soft_breach_date']
             cols_to_show = [c for c in cols_to_show if c in fwd_soft_df.columns]
-            st.dataframe(fwd_soft_df[cols_to_show], use_container_width=True)
+            st.dataframe(fwd_soft_df[cols_to_show], use_container_width=True, height=400)
         else:
             st.info("✅ No forward soft breaches")
     
     with sla_tab2:
         st.subheader("Forward Hard Breach")
-        fwd_hard_df = df_filtered[df_filtered['is_forward_hard_breach'] == 1]
+        fwd_hard_df = df_filtered[df_filtered['is_forward_hard_breach'] == 1] if 'is_forward_hard_breach' in df_filtered.columns else pd.DataFrame()
         st.metric("Parcels", len(fwd_hard_df))
         
         if len(fwd_hard_df) > 0:
             cols_to_show = ['lm_3pl_name', 'tracking_number', 'origin_region', 'destination_region',
                            'forward_journey_closure_hard_breach_sla', 'forward_journey_closure_hard_breach_date']
             cols_to_show = [c for c in cols_to_show if c in fwd_hard_df.columns]
-            st.dataframe(fwd_hard_df[cols_to_show], use_container_width=True)
+            st.dataframe(fwd_hard_df[cols_to_show], use_container_width=True, height=400)
         else:
             st.info("✅ No forward hard breaches")
     
     with sla_tab3:
         st.subheader("RTS Soft Breach")
-        rts_soft_df = df_filtered[df_filtered['is_rts_soft_breach'] == 1]
+        rts_soft_df = df_filtered[df_filtered['is_rts_soft_breach'] == 1] if 'is_rts_soft_breach' in df_filtered.columns else pd.DataFrame()
         st.metric("Parcels", len(rts_soft_df))
         
         if len(rts_soft_df) > 0:
             cols_to_show = ['lm_3pl_name', 'tracking_number', 'origin_region', 'destination_region',
                            'rts_journey_closure_soft_breach_sla', 'rts_journey_closure_soft_breach_date']
             cols_to_show = [c for c in cols_to_show if c in rts_soft_df.columns]
-            st.dataframe(rts_soft_df[cols_to_show], use_container_width=True)
+            st.dataframe(rts_soft_df[cols_to_show], use_container_width=True, height=400)
         else:
             st.info("✅ No RTS soft breaches")
     
     with sla_tab4:
         st.subheader("RTS Hard Breach")
-        rts_hard_df = df_filtered[df_filtered['is_rts_hard_breach'] == 1]
+        rts_hard_df = df_filtered[df_filtered['is_rts_hard_breach'] == 1] if 'is_rts_hard_breach' in df_filtered.columns else pd.DataFrame()
         st.metric("Parcels", len(rts_hard_df))
         
         if len(rts_hard_df) > 0:
             cols_to_show = ['lm_3pl_name', 'tracking_number', 'origin_region', 'destination_region',
                            'rts_journey_closure_hard_breach_sla', 'rts_journey_closure_hard_breach_date']
             cols_to_show = [c for c in cols_to_show if c in rts_hard_df.columns]
-            st.dataframe(rts_hard_df[cols_to_show], use_container_width=True)
+            st.dataframe(rts_hard_df[cols_to_show], use_container_width=True, height=400)
         else:
             st.info("✅ No RTS hard breaches")
 
@@ -353,10 +306,10 @@ with tab3:
 # DEBUG
 # ============================================================================
 
-if st.checkbox("🔧 Debug - Show Data Sample"):
+if st.checkbox("🔧 Debug - Show Data & Columns"):
     st.subheader("Data Sample")
-    st.write(f"Rows: {len(df_filtered)}, Columns: {len(df_filtered.columns)}")
-    st.dataframe(df_filtered.head(10), use_container_width=True)
+    st.write(f"Rows: {len(df_filtered):,} | Columns: {len(df_filtered.columns)}")
+    st.dataframe(df_filtered.head(20), use_container_width=True)
     
-    st.subheader("Column Names")
+    st.subheader("All Columns")
     st.write(df_filtered.columns.tolist())
