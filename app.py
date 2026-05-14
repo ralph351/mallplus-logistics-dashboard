@@ -24,7 +24,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st.title("🚚 MallPlus Logistics Dashboard v3.1")
+st.title("🚚 MallPlus Logistics Dashboard v3.2")
 st.markdown("**Professional Multi-Dimensional Analytics** | Last Updated: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S GMT+8"))
 
 # ============================================================================
@@ -138,7 +138,7 @@ if df.empty:
     st.error("📊 Failed to load data. Please check your Google Sheets connection.")
     st.stop()
 
-st.success(f"✅ Loaded {len(df)} orders with {len(df.columns)} columns")
+st.info(f"✅ Loaded {len(df)} orders with {len(df.columns)} columns")
 
 df = prepare_data(df)
 
