@@ -149,14 +149,44 @@ def compute_anomalies(df):
                 if o and f and haversine(o[1], o[0], f[1], f[0]) >= 1.0:
                     df.at[idx, 'flag_fake_attempt_fm_geolocation'] = 1
         
-        # LM Geolocation: >1km from destination
+        # LM Geolocation: >1km from destination (check all three attempt types)
         df['flag_fake_attempt_lm_geolocation'] = 0
-        if 'destination_geolocation' in df.columns and 'domestic_1st_attempt_failed_geolocation' in df.columns:
+        df['fd_flag_fake_attempt_detailed'] = None
+        
+        if 'destination_geolocation' in df.columns:
             for idx in range(len(df)):
                 d = parse_geo(df.iloc[idx]['destination_geolocation'])
-                f = parse_geo(df.iloc[idx]['domestic_1st_attempt_failed_geolocation'])
-                if d and f and haversine(d[1], d[0], f[1], f[0]) >= 1.0:
-                    df.at[idx, 'flag_fake_attempt_lm_geolocation'] = 1
+                if not d:
+                    continue
+                
+                # Check all three delivery attempt geolocations
+                flags = []
+                
+                # 1st attempt
+                if 'domestic_1st_attempt_failed_geolocation' in df.columns:
+                    f1 = parse_geo(df.iloc[idx]['domestic_1st_attempt_failed_geolocation'])
+                    if f1 and haversine(d[1], d[0], f1[1], f1[0]) >= 1.0:
+                        flags.append('1st Attempt')
+                        df.at[idx, 'flag_fake_attempt_lm_geolocation'] = 1
+                
+                # Reattempts
+                if 'domestic_reattempts_failed_geolocation' in df.columns:
+                    fr = parse_geo(df.iloc[idx]['domestic_reattempts_failed_geolocation'])
+                    if fr and haversine(d[1], d[0], fr[1], fr[0]) >= 1.0:
+                        flags.append('Reattempt')
+                        df.at[idx, 'flag_fake_attempt_lm_geolocation'] = 1
+                
+                # Final delivery
+                if 'domestic_delivery_failed_geolocation' in df.columns:
+                    ff = parse_geo(df.iloc[idx]['domestic_delivery_failed_geolocation'])
+                    if ff and haversine(d[1], d[0], ff[1], ff[0]) >= 1.0:
+                        flags.append('Final Attempt')
+                        df.at[idx, 'flag_fake_attempt_lm_geolocation'] = 1
+                
+                # Build detailed flag message
+                if flags:
+                    attempts_str = ', '.join(flags)
+                    df.at[idx, 'fd_flag_fake_attempt_detailed'] = f"Potential Fake Attempt - Geotagged >1km away at: {attempts_str}"
         
         # === FM EOD FAILURE RATE ===
         df['fm_activity_day'] = pd.NaT
@@ -205,9 +235,12 @@ def compute_anomalies(df):
                             df.at[idx, 'fm_failure_tier'] = match.iloc[0]['fm_failure_tier']
         
         # === LM EOD FAILURE RATE ===
-        df['lm_activity_day'] = pd.NaT
-        df['lm_eod_failure_rate_pct'] = np.nan
-        df['lm_failure_tier'] = None
+        if 'lm_activity_day' not in df.columns:
+            df['lm_activity_day'] = pd.NaT
+        if 'lm_eod_failure_rate_pct' not in df.columns:
+            df['lm_eod_failure_rate_pct'] = np.nan
+        if 'lm_failure_tier' not in df.columns:
+            df['lm_failure_tier'] = None
         
         if 'lm_courier_id' in df.columns:
             # Convert all three LM failure timestamp columns
@@ -850,7 +883,7 @@ with tab1:
         fm_geo = df_filtered[df_filtered['flag_fake_attempt_fm_geolocation'] == 1].copy()
         st.metric("Parcels Flagged (Geolocation)", len(fm_geo))
         if len(fm_geo) > 0:
-            cols = [c for c in ['fm_3pl_name', 'tracking_number', 'origin_region', 'seller_id', 'seller_name', 'fm_courier_id', 'origin_geolocation', 'domestic_pickup/sign_in_failure_geolocation'] if c in fm_geo.columns]
+            cols = [c for c in ['fm_3pl_name', 'tracking_number', 'origin_region', 'seller_id', 'seller_name', 'fm_courier_id', 'origin_geolocation', 'domestic_pickup/sign_in_failure_geolocation', 'flag_fake_attempt_fm_geolocation'] if c in fm_geo.columns]
             st.dataframe(fm_geo[cols], use_container_width=True, height=300)
         else:
             st.info("✅ No geolocation violations detected")
@@ -869,7 +902,7 @@ with tab1:
         lm_geo = df_filtered[df_filtered['flag_fake_attempt_lm_geolocation'] == 1].copy()
         st.metric("Parcels Flagged (Geolocation)", len(lm_geo))
         if len(lm_geo) > 0:
-            cols = [c for c in ['lm_3pl_name', 'tracking_number', 'destination_region', 'lm_courier_id', 'destination_geolocation', 'domestic_1st_attempt_failed_geolocation'] if c in lm_geo.columns]
+            cols = [c for c in ['lm_3pl_name', 'tracking_number', 'destination_region', 'lm_courier_id', 'destination_geolocation', 'domestic_1st_attempt_failed_geolocation', 'fd_flag_fake_attempt_detailed'] if c in lm_geo.columns]
             st.dataframe(lm_geo[cols], use_container_width=True, height=300)
         else:
             st.info("✅ No geolocation violations detected")
