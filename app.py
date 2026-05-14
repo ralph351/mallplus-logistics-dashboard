@@ -82,53 +82,56 @@ def load_data():
 # ============================================================================
 
 def prepare_data(df):
-    """Convert columns and create helper fields."""
-    timestamp_cols = ['order_create_ts', 'lvl1_REQUEST_FOR_HANDOVER_ts', 'lvl1_IN_TRANSIT_ts', 'lvl1_final_status_ts', 'lvl2_first_attempt_ts', 'domestic_delivered_ts']
+    """Convert columns and create helper fields. Robust handling of missing columns."""
+    # Timestamp columns that may exist
+    timestamp_cols = ['order_create_ts', 'lvl1_READY_FOR_HANDOVER_ts', 'lvl1_IN_TRANSIT_ts', 'lvl1_final_status_ts', 'lvl2_domestic_1st_attempt_failed_ts']
     
     for col in timestamp_cols:
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], errors='coerce')
     
-    # Lead time calculations (in days) - use correct column names
+    # Initialize lead time columns with NaN (safe default)
+    df['oc_to_rfh_days'] = np.nan
+    df['oc_to_fa_days'] = np.nan
+    df['rfh_to_fa_days'] = np.nan
+    
+    # Calculate only if both columns exist
     if 'order_create_ts' in df.columns and 'lvl1_READY_FOR_HANDOVER_ts' in df.columns:
-        df['oc_to_rfh_days'] = (df['lvl1_READY_FOR_HANDOVER_ts'] - df['order_create_ts']).dt.total_seconds() / 86400
-    else:
-        df['oc_to_rfh_days'] = None
+        valid_mask = df['order_create_ts'].notna() & df['lvl1_READY_FOR_HANDOVER_ts'].notna()
+        df.loc[valid_mask, 'oc_to_rfh_days'] = (df.loc[valid_mask, 'lvl1_READY_FOR_HANDOVER_ts'] - df.loc[valid_mask, 'order_create_ts']).dt.total_seconds() / 86400
     
     if 'order_create_ts' in df.columns and 'lvl2_domestic_1st_attempt_failed_ts' in df.columns:
-        df['oc_to_fa_days'] = (df['lvl2_domestic_1st_attempt_failed_ts'] - df['order_create_ts']).dt.total_seconds() / 86400
-    else:
-        df['oc_to_fa_days'] = None
+        valid_mask = df['order_create_ts'].notna() & df['lvl2_domestic_1st_attempt_failed_ts'].notna()
+        df.loc[valid_mask, 'oc_to_fa_days'] = (df.loc[valid_mask, 'lvl2_domestic_1st_attempt_failed_ts'] - df.loc[valid_mask, 'order_create_ts']).dt.total_seconds() / 86400
     
     if 'lvl1_READY_FOR_HANDOVER_ts' in df.columns and 'lvl2_domestic_1st_attempt_failed_ts' in df.columns:
-        df['rfh_to_fa_days'] = (df['lvl2_domestic_1st_attempt_failed_ts'] - df['lvl1_READY_FOR_HANDOVER_ts']).dt.total_seconds() / 86400
-    else:
-        df['rfh_to_fa_days'] = None
+        valid_mask = df['lvl1_READY_FOR_HANDOVER_ts'].notna() & df['lvl2_domestic_1st_attempt_failed_ts'].notna()
+        df.loc[valid_mask, 'rfh_to_fa_days'] = (df.loc[valid_mask, 'lvl2_domestic_1st_attempt_failed_ts'] - df.loc[valid_mask, 'lvl1_READY_FOR_HANDOVER_ts']).dt.total_seconds() / 86400
     
     return df
 
 def apply_filters(df, oc_dates, rfh_dates, transit_dates, final_dates, granularity, three_pl):
-    """Apply multi-dimensional filters to dataframe."""
+    """Apply multi-dimensional filters to dataframe. Safe column checking."""
     df_filtered = df.copy()
     
-    # 3PL filter
-    if three_pl and three_pl != "All 3PLs":
+    # 3PL filter (only if column exists)
+    if three_pl and three_pl != "All 3PLs" and 'lm_3pl_name' in df.columns:
         df_filtered = df_filtered[df_filtered['lm_3pl_name'] == three_pl]
     
-    # Date range filters (AND logic)
-    if oc_dates:
+    # Date range filters (AND logic) - only apply if column exists
+    if oc_dates and 'order_create_ts' in df.columns:
         oc_start, oc_end = pd.to_datetime(oc_dates[0]), pd.to_datetime(oc_dates[1]) + timedelta(days=1)
         df_filtered = df_filtered[(df_filtered['order_create_ts'] >= oc_start) & (df_filtered['order_create_ts'] < oc_end)]
     
-    if rfh_dates:
+    if rfh_dates and 'lvl1_READY_FOR_HANDOVER_ts' in df.columns:
         rfh_start, rfh_end = pd.to_datetime(rfh_dates[0]), pd.to_datetime(rfh_dates[1]) + timedelta(days=1)
         df_filtered = df_filtered[(df_filtered['lvl1_READY_FOR_HANDOVER_ts'] >= rfh_start) & (df_filtered['lvl1_READY_FOR_HANDOVER_ts'] < rfh_end)]
     
-    if transit_dates:
+    if transit_dates and 'lvl1_IN_TRANSIT_ts' in df.columns:
         transit_start, transit_end = pd.to_datetime(transit_dates[0]), pd.to_datetime(transit_dates[1]) + timedelta(days=1)
         df_filtered = df_filtered[(df_filtered['lvl1_IN_TRANSIT_ts'] >= transit_start) & (df_filtered['lvl1_IN_TRANSIT_ts'] < transit_end)]
     
-    if final_dates:
+    if final_dates and 'lvl1_final_status_ts' in df.columns:
         final_start, final_end = pd.to_datetime(final_dates[0]), pd.to_datetime(final_dates[1]) + timedelta(days=1)
         df_filtered = df_filtered[(df_filtered['lvl1_final_status_ts'] >= final_start) & (df_filtered['lvl1_final_status_ts'] < final_end)]
     
@@ -164,9 +167,13 @@ st.markdown("### 📊 Filters & Dimensions")
 col1, col2, col3, col4, col5, col6 = st.columns(6)
 
 with col1:
+    # Safely get 3PL list
+    three_pl_options = ["All 3PLs"]
+    if 'lm_3pl_name' in df.columns:
+        three_pl_options += list(df['lm_3pl_name'].dropna().unique())
     three_pl = st.selectbox(
         "3PL Partner",
-        ["All 3PLs"] + list(df['lm_3pl_name'].dropna().unique()),
+        three_pl_options,
         help="Select 3PL or view all"
     )
 
