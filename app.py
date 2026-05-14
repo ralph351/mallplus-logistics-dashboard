@@ -99,7 +99,7 @@ def apply_filters(df, oc_dates, rfh_dates, transit_dates, final_dates, granulari
     
     # 3PL filter
     if three_pl and three_pl != "All 3PLs":
-        df_filtered = df_filtered[df_filtered['fm_3pl_name'] == three_pl]
+        df_filtered = df_filtered[df_filtered['lm_3pl_name'] == three_pl]
     
     # Date range filters (AND logic)
     if oc_dates:
@@ -148,7 +148,7 @@ col1, col2, col3, col4, col5, col6 = st.columns(6)
 with col1:
     three_pl = st.selectbox(
         "3PL Partner",
-        ["All 3PLs"] + list(df['fm_3pl_name'].dropna().unique()),
+        ["All 3PLs"] + list(df['lm_3pl_name'].dropna().unique()),
         help="Select 3PL or view all"
     )
 
@@ -237,7 +237,7 @@ except:
 try:
     with col3:
         if three_pl == "All 3PLs":
-            share_data = df_filtered['fm_3pl_name'].value_counts()
+            share_data = df_filtered['lm_3pl_name'].value_counts()
             st.metric("3PL Share (Top)", f"{share_data.index[0]}: {share_data.values[0]}")
         else:
             st.metric("Selected 3PL Volume", len(df_filtered))
