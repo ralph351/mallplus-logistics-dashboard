@@ -156,6 +156,65 @@ def get_time_column(anchor_ts, granularity):
     else:
         return anchor_ts.dt.date
 
+def create_trend_line(df_filtered, metric_column, metric_label, metric_format=".1f", granularity="Daily", is_percentage=False):
+    """Create trend line chart for a metric grouped by lvl1_final_status_ts with time granularity."""
+    try:
+        if 'lvl1_final_status_ts' not in df_filtered.columns or df_filtered.empty:
+            return None
+        
+        # Create time grouping
+        df_trend = df_filtered.copy()
+        df_trend['time_bucket'] = get_time_column(df_trend['lvl1_final_status_ts'], granularity)
+        
+        # Calculate metric by time bucket
+        if metric_column == 'lead_time' or 'days' in metric_column:
+            # For lead time metrics (mean)
+            trend_data = df_trend.groupby('time_bucket')[metric_column].mean().reset_index()
+        elif metric_column == 'p90':
+            # For P90 percentile
+            trend_data = df_trend.groupby('time_bucket')['rfh_to_fa_days'].quantile(0.9).reset_index()
+            trend_data.columns = ['time_bucket', metric_column]
+        else:
+            # For percentage metrics (count / total * 100)
+            trend_data = df_trend.groupby('time_bucket')[metric_column].apply(
+                lambda x: (x == 1).sum() / len(x) * 100 if len(x) > 0 else 0
+            ).reset_index()
+            trend_data.columns = ['time_bucket', metric_column]
+        
+        trend_data = trend_data.sort_values('time_bucket')
+        
+        if trend_data.empty:
+            return None
+        
+        # Create line chart
+        fig = go.Figure()
+        
+        fig.add_trace(go.Scatter(
+            x=trend_data['time_bucket'].astype(str),
+            y=trend_data[metric_column],
+            mode='lines+markers',
+            name=metric_label,
+            line=dict(color='#1f77b4', width=2),
+            marker=dict(size=6)
+        ))
+        
+        y_label = "% " if is_percentage else "Days"
+        
+        fig.update_layout(
+            title=f"{metric_label} Trend",
+            xaxis_title=f"{granularity} (Final Status Date)",
+            yaxis_title=y_label,
+            hovermode='x unified',
+            height=300,
+            margin=dict(l=50, r=50, t=50, b=50),
+            showlegend=False
+        )
+        
+        return fig
+    except Exception as e:
+        st.warning(f"Trend line error for {metric_label}: {str(e)}")
+        return None
+
 # ============================================================================
 # LOAD & PREPARE DATA
 # ============================================================================
@@ -380,6 +439,62 @@ try:
         st.metric("3e. RFH to FA (days)", f"{rfh_fa:.1f}")
     with col4:
         st.metric("3f. RFH to FA P90 (days)", f"{rfh_fa_p90:.1f}")
+    
+    # Trend lines for lead times
+    col_trend1, col_trend2, col_trend3, col_trend4 = st.columns(4)
+    
+    with col_trend1:
+        df_trend_oc_rfh = df_filtered[df_filtered['oc_to_rfh_days'].notna()].copy()
+        if not df_trend_oc_rfh.empty and 'lvl1_final_status_ts' in df_trend_oc_rfh.columns:
+            df_trend_oc_rfh['time_bucket'] = get_time_column(df_trend_oc_rfh['lvl1_final_status_ts'], granularity)
+            trend_oc_rfh = df_trend_oc_rfh.groupby('time_bucket')['oc_to_rfh_days'].mean().reset_index().sort_values('time_bucket')
+            if not trend_oc_rfh.empty:
+                fig_oc_rfh = go.Figure()
+                fig_oc_rfh.add_trace(go.Scatter(x=trend_oc_rfh['time_bucket'].astype(str), y=trend_oc_rfh['oc_to_rfh_days'],
+                    mode='lines+markers', line=dict(color='#1f77b4', width=2), marker=dict(size=5)))
+                fig_oc_rfh.update_layout(title="OC to RFH Trend", xaxis_title=f"{granularity}", yaxis_title="Days",
+                    height=250, margin=dict(l=40, r=40, t=40, b=40), showlegend=False, hovermode='x unified')
+                st.plotly_chart(fig_oc_rfh, use_container_width=True)
+    
+    with col_trend2:
+        df_trend_oc_fa = df_filtered[df_filtered['oc_to_fa_days'].notna()].copy()
+        if not df_trend_oc_fa.empty and 'lvl1_final_status_ts' in df_trend_oc_fa.columns:
+            df_trend_oc_fa['time_bucket'] = get_time_column(df_trend_oc_fa['lvl1_final_status_ts'], granularity)
+            trend_oc_fa = df_trend_oc_fa.groupby('time_bucket')['oc_to_fa_days'].mean().reset_index().sort_values('time_bucket')
+            if not trend_oc_fa.empty:
+                fig_oc_fa = go.Figure()
+                fig_oc_fa.add_trace(go.Scatter(x=trend_oc_fa['time_bucket'].astype(str), y=trend_oc_fa['oc_to_fa_days'],
+                    mode='lines+markers', line=dict(color='#2ca02c', width=2), marker=dict(size=5)))
+                fig_oc_fa.update_layout(title="OC to FA Trend", xaxis_title=f"{granularity}", yaxis_title="Days",
+                    height=250, margin=dict(l=40, r=40, t=40, b=40), showlegend=False, hovermode='x unified')
+                st.plotly_chart(fig_oc_fa, use_container_width=True)
+    
+    with col_trend3:
+        df_trend_rfh_fa = df_filtered[df_filtered['rfh_to_fa_days'].notna()].copy()
+        if not df_trend_rfh_fa.empty and 'lvl1_final_status_ts' in df_trend_rfh_fa.columns:
+            df_trend_rfh_fa['time_bucket'] = get_time_column(df_trend_rfh_fa['lvl1_final_status_ts'], granularity)
+            trend_rfh_fa = df_trend_rfh_fa.groupby('time_bucket')['rfh_to_fa_days'].mean().reset_index().sort_values('time_bucket')
+            if not trend_rfh_fa.empty:
+                fig_rfh_fa = go.Figure()
+                fig_rfh_fa.add_trace(go.Scatter(x=trend_rfh_fa['time_bucket'].astype(str), y=trend_rfh_fa['rfh_to_fa_days'],
+                    mode='lines+markers', line=dict(color='#d62728', width=2), marker=dict(size=5)))
+                fig_rfh_fa.update_layout(title="RFH to FA Trend", xaxis_title=f"{granularity}", yaxis_title="Days",
+                    height=250, margin=dict(l=40, r=40, t=40, b=40), showlegend=False, hovermode='x unified')
+                st.plotly_chart(fig_rfh_fa, use_container_width=True)
+    
+    with col_trend4:
+        df_trend_p90 = df_filtered[df_filtered['rfh_to_fa_days'].notna()].copy()
+        if not df_trend_p90.empty and 'lvl1_final_status_ts' in df_trend_p90.columns:
+            df_trend_p90['time_bucket'] = get_time_column(df_trend_p90['lvl1_final_status_ts'], granularity)
+            trend_p90 = df_trend_p90.groupby('time_bucket')['rfh_to_fa_days'].quantile(0.9).reset_index().sort_values('time_bucket')
+            trend_p90.columns = ['time_bucket', 'p90']
+            if not trend_p90.empty:
+                fig_p90 = go.Figure()
+                fig_p90.add_trace(go.Scatter(x=trend_p90['time_bucket'].astype(str), y=trend_p90['p90'],
+                    mode='lines+markers', line=dict(color='#9467bd', width=2), marker=dict(size=5)))
+                fig_p90.update_layout(title="RFH to FA P90 Trend", xaxis_title=f"{granularity}", yaxis_title="Days",
+                    height=250, margin=dict(l=40, r=40, t=40, b=40), showlegend=False, hovermode='x unified')
+                st.plotly_chart(fig_p90, use_container_width=True)
 except:
     st.info("Lead time data unavailable")
 
@@ -388,6 +503,37 @@ try:
     failed_pct = (df_filtered['final_status'].isin(['FAILED', 'RTS'])).sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
     
     st.metric("3g. Failed Delivery %", f"{failed_pct:.1f}%", delta="vs target <5%")
+    
+    # Trend line for Failed Delivery %
+    df_trend_fd = df_filtered.copy()
+    if 'lvl1_final_status_ts' in df_trend_fd.columns and not df_trend_fd.empty:
+        df_trend_fd['time_bucket'] = get_time_column(df_trend_fd['lvl1_final_status_ts'], granularity)
+        trend_fd = df_trend_fd.groupby('time_bucket').apply(
+            lambda x: (x['final_status'].isin(['FAILED', 'RTS'])).sum() / len(x) * 100 if len(x) > 0 else 0
+        ).reset_index()
+        trend_fd.columns = ['time_bucket', 'failed_pct']
+        trend_fd = trend_fd.sort_values('time_bucket')
+        
+        if not trend_fd.empty:
+            fig_fd = go.Figure()
+            fig_fd.add_trace(go.Scatter(
+                x=trend_fd['time_bucket'].astype(str),
+                y=trend_fd['failed_pct'],
+                mode='lines+markers',
+                name='Failed Delivery %',
+                line=dict(color='#ff7f0e', width=2),
+                marker=dict(size=6)
+            ))
+            fig_fd.update_layout(
+                title="Failed Delivery % Trend",
+                xaxis_title=f"{granularity} (Final Status Date)",
+                yaxis_title="%",
+                hovermode='x unified',
+                height=300,
+                margin=dict(l=50, r=50, t=50, b=50),
+                showlegend=False
+            )
+            st.plotly_chart(fig_fd, use_container_width=True)
 except:
     st.info("Failed delivery data unavailable")
 
@@ -415,6 +561,63 @@ try:
         st.metric("4c. E2E SLA Breach %", f"{e2e_breach:.1f}%")
     with col4:
         st.metric("4d. Promise Breach %", f"{promise_breach:.1f}%")
+    
+    # Trend lines for breach metrics
+    col_breach1, col_breach2, col_breach3, col_breach4 = st.columns(4)
+    
+    with col_breach1:
+        df_trend_fwd = df_filtered.copy()
+        if 'lvl1_final_status_ts' in df_trend_fwd.columns and not df_trend_fwd.empty:
+            df_trend_fwd['time_bucket'] = get_time_column(df_trend_fwd['lvl1_final_status_ts'], granularity)
+            trend_fwd = df_trend_fwd.groupby('time_bucket').apply(
+                lambda x: (x['is_forward_hard_breach'] == 'Yes').sum() / len(x) * 100 if len(x) > 0 else 0
+            ).reset_index()
+            trend_fwd.columns = ['time_bucket', 'fwd_breach']
+            trend_fwd = trend_fwd.sort_values('time_bucket')
+            if not trend_fwd.empty:
+                fig_fwd = go.Figure()
+                fig_fwd.add_trace(go.Scatter(x=trend_fwd['time_bucket'].astype(str), y=trend_fwd['fwd_breach'],
+                    mode='lines+markers', line=dict(color='#1f77b4', width=2), marker=dict(size=5)))
+                fig_fwd.update_layout(title="Forward Breach % Trend", xaxis_title=f"{granularity}", yaxis_title="%",
+                    height=250, margin=dict(l=40, r=40, t=40, b=40), showlegend=False, hovermode='x unified')
+                st.plotly_chart(fig_fwd, use_container_width=True)
+    
+    with col_breach2:
+        df_trend_rts = df_filtered.copy()
+        if 'lvl1_final_status_ts' in df_trend_rts.columns and not df_trend_rts.empty:
+            df_trend_rts['time_bucket'] = get_time_column(df_trend_rts['lvl1_final_status_ts'], granularity)
+            trend_rts = df_trend_rts.groupby('time_bucket').apply(
+                lambda x: (x['is_rts_hard_breach'] == 'Yes').sum() / len(x) * 100 if len(x) > 0 else 0
+            ).reset_index()
+            trend_rts.columns = ['time_bucket', 'rts_breach']
+            trend_rts = trend_rts.sort_values('time_bucket')
+            if not trend_rts.empty:
+                fig_rts = go.Figure()
+                fig_rts.add_trace(go.Scatter(x=trend_rts['time_bucket'].astype(str), y=trend_rts['rts_breach'],
+                    mode='lines+markers', line=dict(color='#2ca02c', width=2), marker=dict(size=5)))
+                fig_rts.update_layout(title="RTS Breach % Trend", xaxis_title=f"{granularity}", yaxis_title="%",
+                    height=250, margin=dict(l=40, r=40, t=40, b=40), showlegend=False, hovermode='x unified')
+                st.plotly_chart(fig_rts, use_container_width=True)
+    
+    with col_breach3:
+        df_trend_e2e = df_filtered.copy()
+        if 'lvl1_final_status_ts' in df_trend_e2e.columns and not df_trend_e2e.empty:
+            df_trend_e2e['time_bucket'] = get_time_column(df_trend_e2e['lvl1_final_status_ts'], granularity)
+            trend_e2e = df_trend_e2e.groupby('time_bucket').apply(
+                lambda x: (x['final_status'] == 'BREACHED').sum() / len(x) * 100 if len(x) > 0 else 0
+            ).reset_index()
+            trend_e2e.columns = ['time_bucket', 'e2e_breach']
+            trend_e2e = trend_e2e.sort_values('time_bucket')
+            if not trend_e2e.empty:
+                fig_e2e = go.Figure()
+                fig_e2e.add_trace(go.Scatter(x=trend_e2e['time_bucket'].astype(str), y=trend_e2e['e2e_breach'],
+                    mode='lines+markers', line=dict(color='#d62728', width=2), marker=dict(size=5)))
+                fig_e2e.update_layout(title="E2E SLA Breach % Trend", xaxis_title=f"{granularity}", yaxis_title="%",
+                    height=250, margin=dict(l=40, r=40, t=40, b=40), showlegend=False, hovermode='x unified')
+                st.plotly_chart(fig_e2e, use_container_width=True)
+    
+    with col_breach4:
+        st.info("Promise Breach trend: TBD")
 except:
     st.info("Breach data unavailable")
 
@@ -437,6 +640,43 @@ try:
     
     with col2:
         st.metric("5b. Damaged %", f"{damaged_pct:.1f}%", delta="vs target <0.1%")
+    
+    # Trend lines for Lost & Damaged
+    col_loss1, col_loss2 = st.columns(2)
+    
+    with col_loss1:
+        df_trend_lost = df_filtered.copy()
+        if 'lvl1_final_status_ts' in df_trend_lost.columns and not df_trend_lost.empty:
+            df_trend_lost['time_bucket'] = get_time_column(df_trend_lost['lvl1_final_status_ts'], granularity)
+            trend_lost = df_trend_lost.groupby('time_bucket').apply(
+                lambda x: (x['final_status'] == 'LOST').sum() / len(x) * 100 if len(x) > 0 else 0
+            ).reset_index()
+            trend_lost.columns = ['time_bucket', 'lost_pct']
+            trend_lost = trend_lost.sort_values('time_bucket')
+            if not trend_lost.empty:
+                fig_lost = go.Figure()
+                fig_lost.add_trace(go.Scatter(x=trend_lost['time_bucket'].astype(str), y=trend_lost['lost_pct'],
+                    mode='lines+markers', line=dict(color='#ff7f0e', width=2), marker=dict(size=6)))
+                fig_lost.update_layout(title="Lost % Trend", xaxis_title=f"{granularity} (Final Status Date)", yaxis_title="%",
+                    height=300, margin=dict(l=50, r=50, t=50, b=50), showlegend=False, hovermode='x unified')
+                st.plotly_chart(fig_lost, use_container_width=True)
+    
+    with col_loss2:
+        df_trend_dmg = df_filtered.copy()
+        if 'lvl1_final_status_ts' in df_trend_dmg.columns and not df_trend_dmg.empty:
+            df_trend_dmg['time_bucket'] = get_time_column(df_trend_dmg['lvl1_final_status_ts'], granularity)
+            trend_dmg = df_trend_dmg.groupby('time_bucket').apply(
+                lambda x: (x['final_status'] == 'DAMAGED').sum() / len(x) * 100 if len(x) > 0 else 0
+            ).reset_index()
+            trend_dmg.columns = ['time_bucket', 'dmg_pct']
+            trend_dmg = trend_dmg.sort_values('time_bucket')
+            if not trend_dmg.empty:
+                fig_dmg = go.Figure()
+                fig_dmg.add_trace(go.Scatter(x=trend_dmg['time_bucket'].astype(str), y=trend_dmg['dmg_pct'],
+                    mode='lines+markers', line=dict(color='#d62728', width=2), marker=dict(size=6)))
+                fig_dmg.update_layout(title="Damaged % Trend", xaxis_title=f"{granularity} (Final Status Date)", yaxis_title="%",
+                    height=300, margin=dict(l=50, r=50, t=50, b=50), showlegend=False, hovermode='x unified')
+                st.plotly_chart(fig_dmg, use_container_width=True)
 except:
     st.info("Lost & Damaged data unavailable")
 
