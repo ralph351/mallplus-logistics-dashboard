@@ -26,7 +26,7 @@ st.set_page_config(
 )
 
 st.title("🚚 MallPlus Logistics Dashboard v3.0")
-st.markdown("**Professional Multi-Dimensional Analytics** | Last Updated: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S GMT+8"))
+st.markdown("**Professional Multi-Dimensional Analytics** | Last Updated: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S GMT+8") + " | Ready ✅")
 
 # ============================================================================
 # DATA LOADING
