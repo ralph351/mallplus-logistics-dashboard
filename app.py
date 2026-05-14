@@ -309,9 +309,9 @@ st.divider()
 
 st.markdown("## 3️⃣ Operations")
 
-# 3a. Pickup Compliance (anchored to lvl1_REQUEST_FOR_HANDOVER_ts)
+# 3a. Pickup Compliance (anchored to lvl1_READY_FOR_HANDOVER_ts)
 try:
-    if 'lvl1_REQUEST_FOR_HANDOVER_ts' in df_filtered.columns:
+    if 'lvl1_READY_FOR_HANDOVER_ts' in df_filtered.columns:
         pickup_comp = (df_filtered['pickup_sla_compliance'] == 'pass').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
         
         col1, col2 = st.columns([1, 2])
@@ -319,7 +319,7 @@ try:
             st.metric("3a. Pickup Compliance %", f"{pickup_comp:.1f}%", delta="vs target 95%")
         
         with col2:
-            daily_pickup = df_filtered.groupby(get_time_column(df_filtered['lvl1_REQUEST_FOR_HANDOVER_ts'], granularity)).apply(
+            daily_pickup = df_filtered.groupby(get_time_column(df_filtered['lvl1_READY_FOR_HANDOVER_ts'], granularity)).apply(
                 lambda x: (x['pickup_sla_compliance'] == 'pass').sum() / len(x) * 100
             )
             
