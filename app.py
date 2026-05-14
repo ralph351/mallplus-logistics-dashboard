@@ -89,15 +89,21 @@ def prepare_data(df):
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], errors='coerce')
     
-    # Lead time calculations (in days)
-    if 'order_create_ts' in df.columns and 'lvl1_REQUEST_FOR_HANDOVER_ts' in df.columns:
-        df['oc_to_rfh_days'] = (df['lvl1_REQUEST_FOR_HANDOVER_ts'] - df['order_create_ts']).dt.total_seconds() / 86400
+    # Lead time calculations (in days) - use correct column names
+    if 'order_create_ts' in df.columns and 'lvl1_READY_FOR_HANDOVER_ts' in df.columns:
+        df['oc_to_rfh_days'] = (df['lvl1_READY_FOR_HANDOVER_ts'] - df['order_create_ts']).dt.total_seconds() / 86400
+    else:
+        df['oc_to_rfh_days'] = None
     
-    if 'order_create_ts' in df.columns and 'lvl2_first_attempt_ts' in df.columns:
-        df['oc_to_fa_days'] = (df['lvl2_first_attempt_ts'] - df['order_create_ts']).dt.total_seconds() / 86400
+    if 'order_create_ts' in df.columns and 'lvl2_domestic_1st_attempt_failed_ts' in df.columns:
+        df['oc_to_fa_days'] = (df['lvl2_domestic_1st_attempt_failed_ts'] - df['order_create_ts']).dt.total_seconds() / 86400
+    else:
+        df['oc_to_fa_days'] = None
     
-    if 'lvl1_REQUEST_FOR_HANDOVER_ts' in df.columns and 'lvl2_first_attempt_ts' in df.columns:
-        df['rfh_to_fa_days'] = (df['lvl2_first_attempt_ts'] - df['lvl1_REQUEST_FOR_HANDOVER_ts']).dt.total_seconds() / 86400
+    if 'lvl1_READY_FOR_HANDOVER_ts' in df.columns and 'lvl2_domestic_1st_attempt_failed_ts' in df.columns:
+        df['rfh_to_fa_days'] = (df['lvl2_domestic_1st_attempt_failed_ts'] - df['lvl1_READY_FOR_HANDOVER_ts']).dt.total_seconds() / 86400
+    else:
+        df['rfh_to_fa_days'] = None
     
     return df
 
@@ -116,7 +122,7 @@ def apply_filters(df, oc_dates, rfh_dates, transit_dates, final_dates, granulari
     
     if rfh_dates:
         rfh_start, rfh_end = pd.to_datetime(rfh_dates[0]), pd.to_datetime(rfh_dates[1]) + timedelta(days=1)
-        df_filtered = df_filtered[(df_filtered['lvl1_REQUEST_FOR_HANDOVER_ts'] >= rfh_start) & (df_filtered['lvl1_REQUEST_FOR_HANDOVER_ts'] < rfh_end)]
+        df_filtered = df_filtered[(df_filtered['lvl1_READY_FOR_HANDOVER_ts'] >= rfh_start) & (df_filtered['lvl1_READY_FOR_HANDOVER_ts'] < rfh_end)]
     
     if transit_dates:
         transit_start, transit_end = pd.to_datetime(transit_dates[0]), pd.to_datetime(transit_dates[1]) + timedelta(days=1)
