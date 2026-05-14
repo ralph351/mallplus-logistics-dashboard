@@ -856,11 +856,12 @@ with tab1:
             st.info("✅ No geolocation violations detected")
         st.divider()
         st.markdown("**Table 2: Courier Failure Rate Analysis (EOD)**")
+        st.caption("*Note: Mock data has no failure timestamps yet. Logic implemented and ready for live data.*")
         fm_eod = df_filtered[df_filtered['fm_eod_failure_rate_pct'].notna()][['fm_3pl_name', 'fm_courier_id', 'fm_activity_day', 'fm_eod_failure_rate_pct', 'fm_failure_tier']].drop_duplicates('fm_courier_id')
         if len(fm_eod) > 0:
             st.dataframe(fm_eod.sort_values('fm_eod_failure_rate_pct', ascending=False), use_container_width=True, height=300)
         else:
-            st.info("🔄 EOD failure rate: Identifies couriers with >50% failures in last 30 mins of their daily shift")
+            st.info("🔄 EOD failure rate: Identifies couriers with >50% failures in last 30 mins of their daily shift. Awaiting failure timestamp data.")
     
     with fake_tab2:
         st.subheader("b. Potential Fake Delivery Attempt")
@@ -874,11 +875,12 @@ with tab1:
             st.info("✅ No geolocation violations detected")
         st.divider()
         st.markdown("**Table 2: Courier Failure Rate Analysis (EOD)**")
+        st.caption("*Note: Mock data has no failure timestamps yet. Logic implemented and ready for live data.*")
         lm_eod = df_filtered[df_filtered['lm_eod_failure_rate_pct'].notna()][['fm_3pl_name', 'lm_courier_id', 'lm_activity_day', 'lm_eod_failure_rate_pct', 'lm_failure_tier']].drop_duplicates('lm_courier_id')
         if len(lm_eod) > 0:
             st.dataframe(lm_eod.sort_values('lm_eod_failure_rate_pct', ascending=False), use_container_width=True, height=300)
         else:
-            st.info("🔄 EOD failure rate: Identifies couriers with >50% failures in last 30 mins of their daily shift")
+            st.info("🔄 EOD failure rate: Identifies couriers with >50% failures in last 30 mins of their daily shift. Awaiting failure timestamp data.")
 
 # TAB 2: Theft & Tampering
 with tab2:
