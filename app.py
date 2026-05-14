@@ -23,8 +23,8 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st.title("🚚 MallPlus Logistics Dashboard v4.2 (Simulated Data v3)")
-st.markdown("**Production Ready** | Last Updated: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S GMT+8"))
+st.title("🚚 MallPlus Logistics Dashboard v4.2 (Simulated Data - CORRECTED)")
+st.markdown("**Production Ready** | Last Updated: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S GMT+8") + " | SLA Fields: ✅ CORRECTED")
 
 # ============================================================================
 # DATA LOADING - Direct CSV from Google Sheets (bulletproof)
@@ -32,11 +32,11 @@ st.markdown("**Production Ready** | Last Updated: " + datetime.now().strftime("%
 
 @st.cache_data(ttl=300)
 def load_data():
-    """Load data directly from Google Sheets CSV export - no API nonsense."""
+    """Load data directly from Google Sheets CSV export - corrected mock data with proper SLA fields."""
     try:
-        # Export URL: CSV export from Simulated Data v3 sheet (144 columns, pristine)
-        sheet_id = "1L5qyfPzh2fmiR6-F1TKB2Op03xMzyBn3XmqaTpLOU_A"
-        gid = "1025286670"  # Simulated Data v3 sheet ID
+        # Export URL: CSV export from Simulated Data sheet (144 columns, all SLA fields correct)
+        sheet_id = "1zTGMztXvfsl4oIt1X6whtW2hC4tJgKOnYtXHt6NrncY"
+        gid = "0"  # Simulated Data sheet ID
         csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
         
         response = requests.get(csv_url, timeout=10)
