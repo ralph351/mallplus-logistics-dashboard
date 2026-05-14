@@ -280,7 +280,8 @@ try:
             )
             
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=[str(i) for i in daily_cpp.index], y=daily_cpp.values, mode='lines+markers', name='CPP'))
+            x_labels = [str(i).split(' ')[0] if ' ' in str(i) else str(i) for i in daily_cpp.index]
+            fig.add_trace(go.Scatter(x=x_labels, y=daily_cpp.values, mode='lines+markers', name='CPP'))
             fig.add_hline(y=81.04, line_dash="dash", line_color="red", annotation_text="Target")
             fig.update_layout(title="CPP Trend", height=300, showlegend=False)
             st.plotly_chart(fig, width="stretch")
@@ -310,7 +311,8 @@ try:
             )
             
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=[str(i) for i in daily_pickup.index], y=daily_pickup.values, mode='lines+markers'))
+            x_labels = [str(i).split(' ')[0] if ' ' in str(i) else str(i) for i in daily_pickup.index]
+            fig.add_trace(go.Scatter(x=x_labels, y=daily_pickup.values, mode='lines+markers'))
             fig.add_hline(y=95, line_dash="dash", line_color="red", annotation_text="Target")
             fig.update_layout(title="Pickup Compliance Trend", height=300, showlegend=False)
             st.plotly_chart(fig, width="stretch")
@@ -332,7 +334,8 @@ try:
             )
             
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=[str(i) for i in daily_forward.index], y=daily_forward.values, mode='lines+markers'))
+            x_labels = [str(i).split(' ')[0] if ' ' in str(i) else str(i) for i in daily_forward.index]
+            fig.add_trace(go.Scatter(x=x_labels, y=daily_forward.values, mode='lines+markers'))
             fig.add_hline(y=92, line_dash="dash", line_color="red", annotation_text="Target")
             fig.update_layout(title="Forward Delivery Compliance Trend", height=300, showlegend=False)
             st.plotly_chart(fig, width="stretch")
