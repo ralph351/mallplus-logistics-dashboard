@@ -83,21 +83,13 @@ def load_data():
 
 def prepare_data(df):
     """Convert columns and create helper fields."""
-    timestamp_cols = ['order_create_ts', 'lvl1_REQUEST_FOR_HANDOVER_ts', 'lvl1_IN_TRANSIT_ts', 'lvl1_final_status_ts', 'lvl2_first_attempt_ts', 'domestic_delivered_ts']
+    timestamp_cols = ['order_create_ts', 'lvl1_READY_FOR_HANDOVER_ts', 'lvl1_IN_TRANSIT_ts',
+                      'ship_by_date_ts', 'target_pickup_date', 'forward_delivery_date_based_on_sla',
+                      'lvl2_domestic_delivered_ts', 'lvl2_domestic_pickup_sign_in_success_ts']
     
     for col in timestamp_cols:
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], errors='coerce')
-    
-    # Lead time calculations (in days)
-    if 'order_create_ts' in df.columns and 'lvl1_REQUEST_FOR_HANDOVER_ts' in df.columns:
-        df['oc_to_rfh_days'] = (df['lvl1_REQUEST_FOR_HANDOVER_ts'] - df['order_create_ts']).dt.total_seconds() / 86400
-    
-    if 'order_create_ts' in df.columns and 'lvl2_first_attempt_ts' in df.columns:
-        df['oc_to_fa_days'] = (df['lvl2_first_attempt_ts'] - df['order_create_ts']).dt.total_seconds() / 86400
-    
-    if 'lvl1_REQUEST_FOR_HANDOVER_ts' in df.columns and 'lvl2_first_attempt_ts' in df.columns:
-        df['rfh_to_fa_days'] = (df['lvl2_first_attempt_ts'] - df['lvl1_REQUEST_FOR_HANDOVER_ts']).dt.total_seconds() / 86400
     
     return df
 
@@ -107,7 +99,7 @@ def apply_filters(df, oc_dates, rfh_dates, transit_dates, final_dates, granulari
     
     # 3PL filter
     if three_pl and three_pl != "All 3PLs":
-        df_filtered = df_filtered[df_filtered['3pl_name'] == three_pl]
+        df_filtered = df_filtered[df_filtered['fm_3pl_name'] == three_pl]
     
     # Date range filters (AND logic)
     if oc_dates:
@@ -116,15 +108,11 @@ def apply_filters(df, oc_dates, rfh_dates, transit_dates, final_dates, granulari
     
     if rfh_dates:
         rfh_start, rfh_end = pd.to_datetime(rfh_dates[0]), pd.to_datetime(rfh_dates[1]) + timedelta(days=1)
-        df_filtered = df_filtered[(df_filtered['lvl1_REQUEST_FOR_HANDOVER_ts'] >= rfh_start) & (df_filtered['lvl1_REQUEST_FOR_HANDOVER_ts'] < rfh_end)]
+        df_filtered = df_filtered[(df_filtered['lvl1_READY_FOR_HANDOVER_ts'] >= rfh_start) & (df_filtered['lvl1_READY_FOR_HANDOVER_ts'] < rfh_end)]
     
     if transit_dates:
         transit_start, transit_end = pd.to_datetime(transit_dates[0]), pd.to_datetime(transit_dates[1]) + timedelta(days=1)
         df_filtered = df_filtered[(df_filtered['lvl1_IN_TRANSIT_ts'] >= transit_start) & (df_filtered['lvl1_IN_TRANSIT_ts'] < transit_end)]
-    
-    if final_dates:
-        final_start, final_end = pd.to_datetime(final_dates[0]), pd.to_datetime(final_dates[1]) + timedelta(days=1)
-        df_filtered = df_filtered[(df_filtered['lvl1_final_status_ts'] >= final_start) & (df_filtered['lvl1_final_status_ts'] < final_end)]
     
     return df_filtered
 
@@ -160,7 +148,7 @@ col1, col2, col3, col4, col5, col6 = st.columns(6)
 with col1:
     three_pl = st.selectbox(
         "3PL Partner",
-        ["All 3PLs"] + list(df['3pl_name'].dropna().unique()),
+        ["All 3PLs"] + list(df['fm_3pl_name'].dropna().unique()),
         help="Select 3PL or view all"
     )
 
@@ -249,7 +237,7 @@ except:
 try:
     with col3:
         if three_pl == "All 3PLs":
-            share_data = df_filtered['3pl_name'].value_counts()
+            share_data = df_filtered['fm_3pl_name'].value_counts()
             st.metric("3PL Share (Top)", f"{share_data.index[0]}: {share_data.values[0]}")
         else:
             st.metric("Selected 3PL Volume", len(df_filtered))
