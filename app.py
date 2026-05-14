@@ -23,7 +23,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st.title("🚚 MallPlus Logistics Dashboard v4.0")
+st.title("🚚 MallPlus Logistics Dashboard v4.1 (Simulated Data v2)")
 st.markdown("**Production Ready** | Last Updated: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S GMT+8"))
 
 # ============================================================================
@@ -34,9 +34,9 @@ st.markdown("**Production Ready** | Last Updated: " + datetime.now().strftime("%
 def load_data():
     """Load data directly from Google Sheets CSV export - no API nonsense."""
     try:
-        # Export URL: CSV export from Simulated Data sheet
+        # Export URL: CSV export from Simulated Data v2 sheet (clean data)
         sheet_id = "1L5qyfPzh2fmiR6-F1TKB2Op03xMzyBn3XmqaTpLOU_A"
-        gid = "0"  # Simulated Data sheet ID
+        gid = "1643349449"  # Simulated Data v2 sheet ID
         csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
         
         response = requests.get(csv_url, timeout=10)
