@@ -95,6 +95,7 @@ def prepare_data(df):
         df['oc_to_rfh_days'] = np.nan
         df['oc_to_fa_days'] = np.nan
         df['rfh_to_fa_days'] = np.nan
+        df['rfh_to_fa_p90'] = np.nan
         
         # Calculate only if both columns exist
         if 'order_create_ts' in df.columns and 'lvl1_READY_FOR_HANDOVER_ts' in df.columns:
