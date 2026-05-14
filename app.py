@@ -98,6 +98,9 @@ def load_data():
 
 def prepare_data(df):
     """Prepare data: convert timestamps, ensure columns exist."""
+    # Remove duplicate columns (keep first occurrence)
+    df = df.loc[:, ~df.columns.duplicated(keep='first')]
+    
     # Safe timestamp conversion
     timestamp_cols = ['order_create_ts', 'lvl1_READY_FOR_HANDOVER_ts', 'lvl1_IN_TRANSIT_ts',
                       'lvl1_final_status_ts', 'lvl2_first_attempt_ts', 'domestic_delivered_ts']
@@ -105,7 +108,7 @@ def prepare_data(df):
     for col in timestamp_cols:
         if col in df.columns:
             try:
-                df[col] = pd.to_datetime(df[col], errors='coerce')
+                df[col] = pd.to_datetime(df[col], errors='coerce', format='%Y-%m-%dT%H:%M:%S')
             except:
                 pass
     
