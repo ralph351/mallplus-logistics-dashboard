@@ -85,7 +85,7 @@ def prepare_data(df):
     """Convert columns and create helper fields. Robust handling of missing columns."""
     try:
         # Timestamp columns that may exist
-        timestamp_cols = ['order_create_ts', 'lvl1_READY_FOR_HANDOVER_ts', 'lvl1_IN_TRANSIT_ts', 'lvl1_final_status_ts', 'lvl2_domestic_1st_attempt_failed_ts']
+        timestamp_cols = ['order_create_ts', 'lvl1_READY_FOR_HANDOVER_ts', 'lvl1_IN_TRANSIT_ts', 'lvl1_final_status_ts', 'lvl2_first_attempt_ts']
         
         for col in timestamp_cols:
             if col in df.columns:
@@ -102,15 +102,15 @@ def prepare_data(df):
             if valid_mask.any():
                 df.loc[valid_mask, 'oc_to_rfh_days'] = (df.loc[valid_mask, 'lvl1_READY_FOR_HANDOVER_ts'] - df.loc[valid_mask, 'order_create_ts']).dt.total_seconds() / 86400
         
-        if 'order_create_ts' in df.columns and 'lvl2_domestic_1st_attempt_failed_ts' in df.columns:
-            valid_mask = df['order_create_ts'].notna() & df['lvl2_domestic_1st_attempt_failed_ts'].notna()
+        if 'order_create_ts' in df.columns and 'lvl2_first_attempt_ts' in df.columns:
+            valid_mask = df['order_create_ts'].notna() & df['lvl2_first_attempt_ts'].notna()
             if valid_mask.any():
-                df.loc[valid_mask, 'oc_to_fa_days'] = (df.loc[valid_mask, 'lvl2_domestic_1st_attempt_failed_ts'] - df.loc[valid_mask, 'order_create_ts']).dt.total_seconds() / 86400
+                df.loc[valid_mask, 'oc_to_fa_days'] = (df.loc[valid_mask, 'lvl2_first_attempt_ts'] - df.loc[valid_mask, 'order_create_ts']).dt.total_seconds() / 86400
         
-        if 'lvl1_READY_FOR_HANDOVER_ts' in df.columns and 'lvl2_domestic_1st_attempt_failed_ts' in df.columns:
-            valid_mask = df['lvl1_READY_FOR_HANDOVER_ts'].notna() & df['lvl2_domestic_1st_attempt_failed_ts'].notna()
+        if 'lvl1_READY_FOR_HANDOVER_ts' in df.columns and 'lvl2_first_attempt_ts' in df.columns:
+            valid_mask = df['lvl1_READY_FOR_HANDOVER_ts'].notna() & df['lvl2_first_attempt_ts'].notna()
             if valid_mask.any():
-                df.loc[valid_mask, 'rfh_to_fa_days'] = (df.loc[valid_mask, 'lvl2_domestic_1st_attempt_failed_ts'] - df.loc[valid_mask, 'lvl1_READY_FOR_HANDOVER_ts']).dt.total_seconds() / 86400
+                df.loc[valid_mask, 'rfh_to_fa_days'] = (df.loc[valid_mask, 'lvl2_first_attempt_ts'] - df.loc[valid_mask, 'lvl1_READY_FOR_HANDOVER_ts']).dt.total_seconds() / 86400
     
     except Exception as e:
         st.warning(f"Data prep issue: {str(e)}")
