@@ -757,10 +757,7 @@ with tab1:
             st.info("✅ No geolocation violations detected")
         st.divider()
         st.markdown("**Table 2: Courier Failure Rate Analysis (EOD)**")
-        if 'fm_courier_id' in df_filtered.columns:
-            fm_summary = df_filtered[['fm_3pl_name', 'fm_courier_id', 'fm_activity_day', 'fm_failure_tier', 'fm_eod_failure_rate_pct']].drop_duplicates('fm_courier_id')
-            fm_summary = fm_summary[fm_summary['fm_courier_id'].notna()]
-            st.dataframe(fm_summary, use_container_width=True, height=300) if len(fm_summary) > 0 else st.info("No FM courier data")
+        st.info("🔄 EOD failure rate calculation: Computes daily courier failures in last 30 mins of shift (>50% = flag). Data: Coming soon.")
     
     with fake_tab2:
         st.subheader("b. Potential Fake Delivery Attempt")
@@ -774,10 +771,7 @@ with tab1:
             st.info("✅ No geolocation violations detected")
         st.divider()
         st.markdown("**Table 2: Courier Failure Rate Analysis (EOD)**")
-        if 'lm_courier_id' in df_filtered.columns:
-            lm_summary = df_filtered[['fm_3pl_name', 'lm_courier_id', 'lm_activity_day', 'lm_failure_tier', 'lm_eod_failure_rate_pct']].drop_duplicates('lm_courier_id')
-            lm_summary = lm_summary[lm_summary['lm_courier_id'].notna()]
-            st.dataframe(lm_summary, use_container_width=True, height=300) if len(lm_summary) > 0 else st.info("No LM courier data")
+        st.info("🔄 EOD failure rate calculation: Computes daily courier failures in last 30 mins of shift (>50% = flag). Data: Coming soon.")
 
 # TAB 2: Theft & Tampering
 with tab2:
