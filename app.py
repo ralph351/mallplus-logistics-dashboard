@@ -153,7 +153,7 @@ with col1:
     three_pl_options = ["All 3PLs"]
     if 'lm_3pl_name' in df.columns:
         three_pl_options += sorted(df['lm_3pl_name'].dropna().unique().tolist())
-    three_pl = st.selectbox("3PL Partner", three_pl_options)
+    three_pl = st.selectbox("3PL Partner", three_pl_options, help="Select 3PL or view all")
 
 with col2:
     if 'order_create_ts' in df.columns and pd.api.types.is_datetime64_any_dtype(df['order_create_ts']):
@@ -180,7 +180,7 @@ with col4:
 # Apply filters
 df_filtered = df.copy()
 
-if three_pl != "All 3PLs" and 'lm_3pl_name' in df_filtered.columns:
+if three_pl and three_pl != "All 3PLs" and 'lm_3pl_name' in df_filtered.columns:
     df_filtered = df_filtered[df_filtered['lm_3pl_name'] == three_pl]
 
 if oc_dates and len(oc_dates) == 2 and 'order_create_ts' in df_filtered.columns:
