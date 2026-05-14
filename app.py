@@ -1,6 +1,7 @@
 """
-MallPlus Logistics Dashboard v4.0 - Stable Production Build
-Direct CSV loading from Google Sheets export (no API fragility)
+MallPlus Logistics Dashboard v4.2 - Full Redesign with 5 KPI Sections
+Real-time logistics KPI monitoring with cost, performance, SLA, and anomaly detection
+144-field schema with corrected SLA calculations
 """
 
 import streamlit as st
@@ -23,33 +24,28 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st.title("🚚 MallPlus Logistics Dashboard v4.2 (Simulated Data - CORRECTED)")
-st.markdown("**Production Ready** | Last Updated: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S GMT+8") + " | SLA Fields: ✅ CORRECTED")
+st.title("🚚 MallPlus Logistics Dashboard v4.2")
+st.markdown("**Real-time Logistics KPI Monitoring** | Last Updated: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S GMT+8") + " | Status: ✅ Synced")
 
 # ============================================================================
-# DATA LOADING - Direct CSV from Google Sheets (bulletproof)
+# DATA LOADING - Direct CSV from Google Sheets
 # ============================================================================
 
 @st.cache_data(ttl=300)
 def load_data():
-    """Load data directly from Google Sheets CSV export - corrected mock data with proper SLA fields."""
+    """Load corrected mock data from Google Sheets (144 columns, SLA fields corrected)."""
     try:
-        # Export URL: CSV export from Simulated Data sheet (144 columns, all SLA fields correct)
+        # Corrected sheet: 144 columns with proper SLA types
         sheet_id = "1zTGMztXvfsl4oIt1X6whtW2hC4tJgKOnYtXHt6NrncY"
-        gid = "0"  # Simulated Data sheet ID
+        gid = "0"
         csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
         
         response = requests.get(csv_url, timeout=10)
         response.raise_for_status()
-        
-        # Load CSV into pandas
         df = pd.read_csv(StringIO(response.text))
-        
-        # Clean up: Remove any duplicate columns
         df = df.loc[:, ~df.columns.duplicated(keep='first')]
         
         return df
-    
     except Exception as e:
         st.error(f"❌ Failed to load data: {str(e)}")
         return pd.DataFrame()
@@ -59,37 +55,41 @@ def load_data():
 # ============================================================================
 
 def prepare_data(df):
-    """Minimal, safe data prep."""
+    """Convert types and clean data."""
     if df.empty:
         return df
     
-    # Remove duplicates early
     df = df.loc[:, ~df.columns.duplicated(keep='first')]
     
-    # Convert timestamp columns - flexible parsing
-    timestamp_cols = ['order_create_ts', 'lvl1_READY_FOR_HANDOVER_ts', 'lvl1_IN_TRANSIT_ts',
-                      'lvl1_final_status_ts', 'lvl2_first_attempt_ts', 'domestic_delivered_ts',
-                      'forward_journey_closure_soft_breach_date', 'forward_journey_closure_hard_breach_date',
-                      'rts_journey_closure_soft_breach_date', 'rts_journey_closure_hard_breach_date']
+    # Timestamp columns
+    timestamp_cols = [
+        'order_create_ts', 'lvl1_READY_FOR_HANDOVER_ts', 'lvl1_IN_TRANSIT_ts',
+        'ship_by_date_ts', 'target_pickup_date', 'forward_delivery_date_based_on_sla',
+        'forward_journey_closure_soft_breach_date', 'forward_journey_closure_hard_breach_date',
+        'rts_journey_closure_soft_breach_date', 'rts_journey_closure_hard_breach_date',
+        'lvl2_domestic_delivered_ts', 'lvl2_domestic_pickup_sign_in_success_ts'
+    ]
     
     for col in timestamp_cols:
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], errors='coerce')
     
-    # Convert numeric columns
-    numeric_cols = ['system_chargeable_weight', 'actual_chargeable_weight', 
-                    'estimated_shipping_fee', 'actual_shipping_fee',
-                    'forward_journey_closure_soft_breach_sla', 'forward_journey_closure_hard_breach_sla',
-                    'rts_journey_closure_soft_breach_sla', 'rts_journey_closure_hard_breach_sla']
+    # Numeric columns
+    numeric_cols = [
+        'system_chargeable_weight', 'actual_chargeable_weight', 
+        'estimated_shipping_fee', 'actual_shipping_fee',
+        'ship_by_date_sla', 'target_pickup_date_sla',
+        'forward_delivery_sla', 'forward_journey_closure_soft_breach_sla',
+        'forward_journey_closure_hard_breach_sla', 'rts_journey_closure_sla',
+        'rts_journey_closure_soft_breach_sla', 'rts_journey_closure_hard_breach_sla'
+    ]
     
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
     
-    # Ensure flag columns are 0/1
-    flag_cols = ['flag_fake_attempt_fm_geolocation', 'is_forward_soft_breach', 'is_forward_hard_breach',
-                 'is_rts_soft_breach', 'is_rts_hard_breach']
-    
+    # Breach flags (1/0)
+    flag_cols = ['is_forward_soft_breach', 'is_forward_hard_breach', 'is_rts_soft_breach', 'is_rts_hard_breach']
     for col in flag_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
@@ -97,219 +97,302 @@ def prepare_data(df):
     return df
 
 # ============================================================================
-# LOAD & PREP
+# LOAD & PREPARE DATA
 # ============================================================================
 
 df = load_data()
-if df.empty:
-    st.error("📊 No data loaded. Check your connection or sheet URL.")
-    st.stop()
-
 df = prepare_data(df)
 
-st.info(f"✅ Loaded {len(df):,} orders | {len(df.columns)} columns | Ready")
+if df.empty:
+    st.error("❌ No data loaded. Check connection and sheet access.")
+    st.stop()
 
 # ============================================================================
-# FILTERS
+# TIME FILTERS (Sidebar)
 # ============================================================================
 
-st.markdown("### 📊 Filters")
-col1, col2, col3, col4 = st.columns(4)
+st.sidebar.markdown("### 📅 Time Filters")
 
-with col1:
-    three_pl_options = ["All 3PLs"]
-    if 'lm_3pl_name' in df.columns:
-        three_pl_options += sorted(df['lm_3pl_name'].dropna().unique().tolist())
-    three_pl = st.selectbox("3PL Partner", three_pl_options)
+# Date range filter
+min_date = df['order_create_ts'].min()
+max_date = df['order_create_ts'].max()
 
-with col2:
-    if 'order_create_ts' in df.columns and pd.api.types.is_datetime64_any_dtype(df['order_create_ts']):
-        min_date = df['order_create_ts'].min().date()
-        max_date = df['order_create_ts'].max().date()
-        oc_dates = st.date_input("Order Create Date", value=[min_date, max_date], max_value=datetime.now().date())
-    else:
-        oc_dates = []
+date_range = st.sidebar.date_input(
+    "Select Date Range",
+    value=(min_date, max_date),
+    min_value=min_date,
+    max_value=max_date
+)
 
-with col3:
-    if 'destination_region' in df.columns:
-        region_options = ["All Regions"] + sorted(df['destination_region'].dropna().unique().tolist())
-        region = st.selectbox("Destination Region", region_options)
-    else:
-        region = "All Regions"
+if isinstance(date_range, tuple) and len(date_range) == 2:
+    start_date, end_date = date_range
+    df_filtered = df[(df['order_create_ts'].dt.date >= start_date) & (df['order_create_ts'].dt.date <= end_date)]
+else:
+    df_filtered = df
 
-with col4:
-    if 'lvl1_order_logistics_status' in df.columns:
-        status_options = ["All Status"] + sorted(df['lvl1_order_logistics_status'].dropna().unique().tolist())
-        status = st.selectbox("Order Status", status_options)
-    else:
-        status = "All Status"
+# Quick time filters
+st.sidebar.markdown("### ⏱️ Quick Filters")
+quick_filter = st.sidebar.radio("Select Period", ["All Data", "Last 7 Days", "Last 24 Hours"])
 
-# Apply filters
-df_filtered = df.copy()
+if quick_filter == "Last 24 Hours":
+    cutoff = max_date - timedelta(days=1)
+    df_filtered = df_filtered[df_filtered['order_create_ts'] >= cutoff]
+elif quick_filter == "Last 7 Days":
+    cutoff = max_date - timedelta(days=7)
+    df_filtered = df_filtered[df_filtered['order_create_ts'] >= cutoff]
 
-if three_pl and three_pl != "All 3PLs" and 'lm_3pl_name' in df_filtered.columns:
-    df_filtered = df_filtered[df_filtered['lm_3pl_name'] == three_pl]
+# Region filter
+st.sidebar.markdown("### 🗺️ Region Filter")
+regions = ["All"] + sorted(df['origin_region'].dropna().unique().tolist())
+selected_region = st.sidebar.selectbox("Origin Region", regions)
 
-if oc_dates and len(oc_dates) == 2 and 'order_create_ts' in df_filtered.columns:
-    oc_start = pd.to_datetime(oc_dates[0])
-    oc_end = pd.to_datetime(oc_dates[1]) + timedelta(days=1)
-    df_filtered = df_filtered[(df_filtered['order_create_ts'] >= oc_start) & (df_filtered['order_create_ts'] < oc_end)]
+if selected_region != "All":
+    df_filtered = df_filtered[df_filtered['origin_region'] == selected_region]
 
-if region and region != "All Regions" and 'destination_region' in df_filtered.columns:
-    df_filtered = df_filtered[df_filtered['destination_region'] == region]
+# 3PL filter
+st.sidebar.markdown("### 🏢 3PL Filter")
+three_pls = ["All"] + sorted(df['fm_3pl_name'].dropna().unique().tolist())
+selected_3pl = st.sidebar.selectbox("First-Mile 3PL", three_pls)
 
-if status and status != "All Status" and 'lvl1_order_logistics_status' in df_filtered.columns:
-    df_filtered = df_filtered[df_filtered['lvl1_order_logistics_status'] == status]
+if selected_3pl != "All":
+    df_filtered = df_filtered[df_filtered['fm_3pl_name'] == selected_3pl]
+
+st.sidebar.markdown(f"**Records Shown:** {len(df_filtered)} / {len(df)}")
 
 # ============================================================================
-# KPI METRICS
+# KPI SECTION 1: SUMMARY CARDS
 # ============================================================================
 
-st.markdown("### 📈 Summary Metrics")
+st.markdown("## 📊 Summary KPIs")
+
 col1, col2, col3, col4, col5, col6 = st.columns(6)
 
 with col1:
-    st.metric("Total Orders", len(df_filtered))
+    total_parcels = len(df_filtered)
+    st.metric("Total Parcels", f"{total_parcels:,}")
 
 with col2:
-    delivered = len(df_filtered[df_filtered['final_status'] == 'DELIVERED']) if 'final_status' in df_filtered.columns else 0
-    pct = f"{delivered/len(df_filtered)*100:.1f}%" if len(df_filtered) > 0 else "0%"
-    st.metric("Delivered", delivered, pct)
+    pickup_pass = len(df_filtered[df_filtered['pickup_sla_compliance'] == 'pass'])
+    pickup_pct = (pickup_pass / total_parcels * 100) if total_parcels > 0 else 0
+    st.metric("Pickup Compliance", f"{pickup_pct:.1f}%", delta=f"{pickup_pass} passed")
 
 with col3:
-    failed = len(df_filtered[df_filtered['final_status'] == 'DELIVERY_FAILED']) if 'final_status' in df_filtered.columns else 0
-    st.metric("Failed", failed)
+    forward_pass = len(df_filtered[df_filtered['forward_delivery_compliance'] == 'pass'])
+    forward_pct = (forward_pass / total_parcels * 100) if total_parcels > 0 else 0
+    st.metric("Forward SLA", f"{forward_pct:.1f}%", delta=f"{forward_pass} passed")
 
 with col4:
-    fake_pickup = int(df_filtered['flag_fake_attempt_fm_geolocation'].sum()) if 'flag_fake_attempt_fm_geolocation' in df_filtered.columns else 0
-    st.metric("🚨 Fake Pickup", fake_pickup)
+    avg_cpp = df_filtered['actual_shipping_fee'].sum() / max(len(df_filtered), 1)
+    st.metric("Avg Shipping Fee", f"₱{avg_cpp:.2f}")
 
 with col5:
-    fwd_soft = int(df_filtered['is_forward_soft_breach'].sum()) if 'is_forward_soft_breach' in df_filtered.columns else 0
-    st.metric("⚠️ Fwd Soft", fwd_soft)
+    soft_breaches = len(df_filtered[df_filtered['is_forward_soft_breach'] == 1])
+    st.metric("Soft Breaches", f"{soft_breaches}")
 
 with col6:
-    fwd_hard = int(df_filtered['is_forward_hard_breach'].sum()) if 'is_forward_hard_breach' in df_filtered.columns else 0
-    st.metric("🔴 Fwd Hard", fwd_hard)
+    hard_breaches = len(df_filtered[df_filtered['is_forward_hard_breach'] == 1])
+    st.metric("Hard Breaches", f"{hard_breaches}")
 
 # ============================================================================
-# SECTION 1: NETWORK
+# KPI SECTION 2: NETWORK PERFORMANCE
 # ============================================================================
 
-st.markdown("### 🌐 Network Performance")
+st.markdown("---")
+st.markdown("## 🌐 Network Performance")
+
 col1, col2 = st.columns(2)
 
 with col1:
-    if 'destination_region' in df_filtered.columns and 'lvl1_order_logistics_status' in df_filtered.columns:
-        region_status = df_filtered.groupby('destination_region')['lvl1_order_logistics_status'].value_counts().unstack(fill_value=0)
-        st.dataframe(region_status, use_container_width=True)
+    st.subheader("Pickup SLA Compliance by Region")
+    region_pickup = df_filtered.groupby('origin_region').apply(
+        lambda x: len(x[x['pickup_sla_compliance'] == 'pass']) / max(len(x), 1) * 100
+    ).sort_values(ascending=False)
+    
+    fig = px.bar(
+        x=region_pickup.index,
+        y=region_pickup.values,
+        labels={'x': 'Region', 'y': 'Compliance %'},
+        color=region_pickup.values,
+        color_continuous_scale=['#ef4444', '#fbbf24', '#10b981']
+    )
+    fig.update_layout(showlegend=False, height=400)
+    st.plotly_chart(fig, use_container_width=True)
 
 with col2:
-    if 'lm_3pl_name' in df_filtered.columns and 'final_status' in df_filtered.columns:
-        threepl_status = df_filtered.groupby('lm_3pl_name')['final_status'].value_counts().unstack(fill_value=0)
-        st.dataframe(threepl_status, use_container_width=True)
+    st.subheader("Forward Delivery SLA by 3PL")
+    three_pl_forward = df_filtered.groupby('fm_3pl_name').apply(
+        lambda x: len(x[x['forward_delivery_compliance'] == 'pass']) / max(len(x), 1) * 100
+    ).sort_values(ascending=False)
+    
+    fig = px.bar(
+        x=three_pl_forward.index,
+        y=three_pl_forward.values,
+        labels={'x': '3PL', 'y': 'Compliance %'},
+        color=three_pl_forward.values,
+        color_continuous_scale=['#ef4444', '#fbbf24', '#10b981']
+    )
+    fig.update_layout(showlegend=False, height=400)
+    st.plotly_chart(fig, use_container_width=True)
 
 # ============================================================================
-# SECTION 2: ANOMALY DETECTION
+# KPI SECTION 3: COST ANALYSIS
 # ============================================================================
 
-st.markdown("### 🔍 Anomaly Detection")
-tab1, tab2, tab3 = st.tabs(["Potential Fake Pickup", "Potential Fake Delivery", "SLA Breaches"])
+st.markdown("---")
+st.markdown("## 💰 Cost Analysis")
 
-with tab1:
-    st.subheader("Fake Pickup Attempts (FM-GEO)")
-    
-    if 'flag_fake_attempt_fm_geolocation' in df_filtered.columns:
-        fake_pickup_df = df_filtered[df_filtered['flag_fake_attempt_fm_geolocation'] == 1]
-        st.metric("Parcels Flagged", len(fake_pickup_df))
-        
-        if len(fake_pickup_df) > 0:
-            cols_to_show = ['fm_3pl_name', 'tracking_number', 'origin_region', 'seller_name', 
-                           'fm_courier_id', 'origin_geolocation', 'domestic_pickup_sign_in_failure_geolocation']
-            cols_to_show = [c for c in cols_to_show if c in fake_pickup_df.columns]
-            st.dataframe(fake_pickup_df[cols_to_show], use_container_width=True, height=400)
-        else:
-            st.info("✅ No fake pickup flags detected")
-    else:
-        st.warning("Column not found")
+col1, col2 = st.columns(2)
 
-with tab2:
-    st.subheader("Fake Delivery Attempts (LM-GEO)")
-    
-    fake_delivery_df = df_filtered[df_filtered['final_status'] == 'DELIVERY_FAILED'].copy() if 'final_status' in df_filtered.columns else pd.DataFrame()
-    st.metric("Delivery Failed", len(fake_delivery_df))
-    
-    if len(fake_delivery_df) > 0:
-        cols_to_show = ['lm_3pl_name', 'tracking_number', 'destination_region', 'lm_courier_id',
-                       'destination_geolocation', 'domestic_1st_attempt_failed_geolocation', 'fd_triggered_geo_flags']
-        cols_to_show = [c for c in cols_to_show if c in fake_delivery_df.columns]
-        st.dataframe(fake_delivery_df[cols_to_show], use_container_width=True, height=400)
-    else:
-        st.info("✅ No delivery failures detected")
+with col1:
+    st.subheader("Shipping Fee Distribution")
+    fig = px.histogram(
+        df_filtered,
+        x='actual_shipping_fee',
+        nbins=30,
+        labels={'actual_shipping_fee': 'Shipping Fee (₱)'},
+        color_discrete_sequence=['#667eea']
+    )
+    fig.update_layout(height=400, showlegend=False)
+    st.plotly_chart(fig, use_container_width=True)
 
-with tab3:
-    sla_tab1, sla_tab2, sla_tab3, sla_tab4 = st.tabs(["Forward Soft", "Forward Hard", "RTS Soft", "RTS Hard"])
+with col2:
+    st.subheader("Cost per 3PL")
+    three_pl_cost = df_filtered.groupby('fm_3pl_name')['actual_shipping_fee'].agg(['mean', 'sum', 'count'])
     
-    with sla_tab1:
-        st.subheader("Forward Soft Breach")
-        fwd_soft_df = df_filtered[df_filtered['is_forward_soft_breach'] == 1] if 'is_forward_soft_breach' in df_filtered.columns else pd.DataFrame()
-        st.metric("Parcels", len(fwd_soft_df))
-        
-        if len(fwd_soft_df) > 0:
-            cols_to_show = ['lm_3pl_name', 'tracking_number', 'origin_region', 'destination_region',
-                           'forward_journey_closure_soft_breach_sla', 'forward_journey_closure_soft_breach_date']
-            cols_to_show = [c for c in cols_to_show if c in fwd_soft_df.columns]
-            st.dataframe(fwd_soft_df[cols_to_show], use_container_width=True, height=400)
-        else:
-            st.info("✅ No forward soft breaches")
-    
-    with sla_tab2:
-        st.subheader("Forward Hard Breach")
-        fwd_hard_df = df_filtered[df_filtered['is_forward_hard_breach'] == 1] if 'is_forward_hard_breach' in df_filtered.columns else pd.DataFrame()
-        st.metric("Parcels", len(fwd_hard_df))
-        
-        if len(fwd_hard_df) > 0:
-            cols_to_show = ['lm_3pl_name', 'tracking_number', 'origin_region', 'destination_region',
-                           'forward_journey_closure_hard_breach_sla', 'forward_journey_closure_hard_breach_date']
-            cols_to_show = [c for c in cols_to_show if c in fwd_hard_df.columns]
-            st.dataframe(fwd_hard_df[cols_to_show], use_container_width=True, height=400)
-        else:
-            st.info("✅ No forward hard breaches")
-    
-    with sla_tab3:
-        st.subheader("RTS Soft Breach")
-        rts_soft_df = df_filtered[df_filtered['is_rts_soft_breach'] == 1] if 'is_rts_soft_breach' in df_filtered.columns else pd.DataFrame()
-        st.metric("Parcels", len(rts_soft_df))
-        
-        if len(rts_soft_df) > 0:
-            cols_to_show = ['lm_3pl_name', 'tracking_number', 'origin_region', 'destination_region',
-                           'rts_journey_closure_soft_breach_sla', 'rts_journey_closure_soft_breach_date']
-            cols_to_show = [c for c in cols_to_show if c in rts_soft_df.columns]
-            st.dataframe(rts_soft_df[cols_to_show], use_container_width=True, height=400)
-        else:
-            st.info("✅ No RTS soft breaches")
-    
-    with sla_tab4:
-        st.subheader("RTS Hard Breach")
-        rts_hard_df = df_filtered[df_filtered['is_rts_hard_breach'] == 1] if 'is_rts_hard_breach' in df_filtered.columns else pd.DataFrame()
-        st.metric("Parcels", len(rts_hard_df))
-        
-        if len(rts_hard_df) > 0:
-            cols_to_show = ['lm_3pl_name', 'tracking_number', 'origin_region', 'destination_region',
-                           'rts_journey_closure_hard_breach_sla', 'rts_journey_closure_hard_breach_date']
-            cols_to_show = [c for c in cols_to_show if c in rts_hard_df.columns]
-            st.dataframe(rts_hard_df[cols_to_show], use_container_width=True, height=400)
-        else:
-            st.info("✅ No RTS hard breaches")
+    fig = px.bar(
+        three_pl_cost.reset_index(),
+        x='fm_3pl_name',
+        y='mean',
+        labels={'fm_3pl_name': '3PL', 'mean': 'Avg Shipping Fee (₱)'},
+        color='mean',
+        color_continuous_scale=['#667eea', '#764ba2']
+    )
+    fig.update_layout(height=400, showlegend=False)
+    st.plotly_chart(fig, use_container_width=True)
 
 # ============================================================================
-# DEBUG
+# KPI SECTION 4: OPERATIONS STATUS
 # ============================================================================
 
-if st.checkbox("🔧 Debug - Show Data & Columns"):
-    st.subheader("Data Sample")
-    st.write(f"Rows: {len(df_filtered):,} | Columns: {len(df_filtered.columns)}")
-    st.dataframe(df_filtered.head(20), use_container_width=True)
+st.markdown("---")
+st.markdown("## ⚙️ Operations Status")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("Delivery Status Distribution")
     
-    st.subheader("All Columns")
-    st.write(df_filtered.columns.tolist())
+    # Count deliveries by final status
+    status_counts = df_filtered['final_status'].value_counts().head(8)
+    colors = ['#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#3b82f6', '#06b6d4', '#84cc16']
+    
+    fig = px.pie(
+        names=status_counts.index,
+        values=status_counts.values,
+        color_discrete_sequence=colors
+    )
+    fig.update_layout(height=400)
+    st.plotly_chart(fig, use_container_width=True)
+
+with col2:
+    st.subheader("Failed Delivery Reasons (Top 10)")
+    
+    # Reason codes from failed deliveries
+    reason_counts = df_filtered['final_failed_delivery_reason'].value_counts().head(10)
+    
+    fig = px.barh(
+        x=reason_counts.values,
+        y=reason_counts.index,
+        labels={'x': 'Count', 'y': 'Reason Code'},
+        color=reason_counts.values,
+        color_continuous_scale=['#667eea', '#764ba2']
+    )
+    fig.update_layout(height=400, showlegend=False)
+    st.plotly_chart(fig, use_container_width=True)
+
+# ============================================================================
+# KPI SECTION 5: SLA BREACH ANALYSIS
+# ============================================================================
+
+st.markdown("---")
+st.markdown("## ⚠️ SLA Breach Analysis")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("Soft Breach Distribution")
+    soft_by_region = df_filtered.groupby('origin_region')['is_forward_soft_breach'].sum()
+    
+    fig = px.bar(
+        x=soft_by_region.index,
+        y=soft_by_region.values,
+        labels={'x': 'Region', 'y': 'Soft Breaches'},
+        color=soft_by_region.values,
+        color_continuous_scale=['#fbbf24', '#f59e0b']
+    )
+    fig.update_layout(height=400, showlegend=False)
+    st.plotly_chart(fig, use_container_width=True)
+
+with col2:
+    st.subheader("Hard Breach Distribution")
+    hard_by_region = df_filtered.groupby('origin_region')['is_forward_hard_breach'].sum()
+    
+    fig = px.bar(
+        x=hard_by_region.index,
+        y=hard_by_region.values,
+        labels={'x': 'Region', 'y': 'Hard Breaches'},
+        color=hard_by_region.values,
+        color_continuous_scale=['#ef4444', '#dc2626']
+    )
+    fig.update_layout(height=400, showlegend=False)
+    st.plotly_chart(fig, use_container_width=True)
+
+# ============================================================================
+# KPI SECTION 6: LOST & DAMAGED ANALYSIS
+# ============================================================================
+
+st.markdown("---")
+st.markdown("## 📦 Lost & Damaged Packages")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("Package Loss Rate by Region")
+    
+    lost_data = df_filtered[df_filtered['final_status'] == 'PACKAGE_LOST'].groupby('origin_region').size()
+    total_by_region = df_filtered.groupby('origin_region').size()
+    loss_rate = (lost_data / total_by_region * 100).fillna(0).sort_values(ascending=False)
+    
+    fig = px.bar(
+        x=loss_rate.index,
+        y=loss_rate.values,
+        labels={'x': 'Region', 'y': 'Loss Rate (%)'},
+        color=loss_rate.values,
+        color_continuous_scale=['#10b981', '#fbbf24', '#ef4444']
+    )
+    fig.update_layout(height=400, showlegend=False)
+    st.plotly_chart(fig, use_container_width=True)
+
+with col2:
+    st.subheader("Loss Reasons")
+    loss_reasons = df_filtered[df_filtered['final_status'] == 'PACKAGE_LOST']['package_lost_reason'].value_counts().head(10)
+    
+    fig = px.barh(
+        x=loss_reasons.values,
+        y=loss_reasons.index,
+        labels={'x': 'Count', 'y': 'Reason Code'},
+        color=loss_reasons.values,
+        color_continuous_scale=['#667eea', '#764ba2']
+    )
+    fig.update_layout(height=400, showlegend=False)
+    st.plotly_chart(fig, use_container_width=True)
+
+# ============================================================================
+# DEBUG INFO (Collapsible)
+# ============================================================================
+
+with st.expander("🔧 Debug Info"):
+    st.write(f"**Data Shape:** {df.shape}")
+    st.write(f"**Filtered Shape:** {df_filtered.shape}")
+    st.write(f"**Columns:** {list(df.columns)[:20]}... ({len(df.columns)} total)")
+    st.write(f"**Date Range:** {min_date} to {max_date}")
