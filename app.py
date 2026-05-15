@@ -518,6 +518,29 @@ except:
     with col3:
         st.metric("Control Share", "N/A")
 
+# 1d. 3PL Volume Control Pie Chart
+try:
+    if three_pl == "All 3PLs":
+        three_pl_volumes = df_filtered['lm_3pl_name'].value_counts()
+        if len(three_pl_volumes) > 0:
+            fig_pie = go.Figure(data=[go.Pie(
+                labels=three_pl_volumes.index,
+                values=three_pl_volumes.values,
+                hovertemplate='<b>%{label}</b><br>Volume: %{value}<br>%{percent}<extra></extra>'
+            )])
+            fig_pie.update_layout(
+                title="3PL Volume Control",
+                height=350,
+                showlegend=True
+            )
+            st.plotly_chart(fig_pie, use_container_width=True)
+        else:
+            st.info("No 3PL data available")
+    else:
+        st.info(f"Filtered to {three_pl} only. View 'All 3PLs' to see volume distribution.")
+except Exception as e:
+    st.info("3PL volume chart unavailable")
+
 st.divider()
 
 # ============================================================================
