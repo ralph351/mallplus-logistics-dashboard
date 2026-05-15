@@ -189,111 +189,109 @@ def compute_anomalies(df):
                     df.at[idx, 'fd_flag_fake_attempt_detailed'] = f"Potential Fake Attempt - Geotagged >1km away at: {attempts_str}"
         
         # === FM EOD FAILURE RATE ===
-        df['fm_activity_day'] = pd.NaT
-        df['fm_eod_failure_rate_pct'] = np.nan
+        df['fm_activity_day'] = None
+        df['fm_eod_failure_rate_pct'] = None
         df['fm_failure_tier'] = None
         
-        if 'lvl2_domestic_pickup/sign_in_failure_ts' in df.columns and 'fm_courier_id' in df.columns:
-            df['lvl2_domestic_pickup/sign_in_failure_ts'] = pd.to_datetime(df['lvl2_domestic_pickup/sign_in_failure_ts'], errors='coerce', format='ISO8601')
-            
-            # Step 1: Build FM daily events
-            fm_events = df[df['lvl2_domestic_pickup/sign_in_failure_ts'].notna()][['fm_courier_id', 'lvl2_domestic_pickup/sign_in_failure_ts']].copy()
-            fm_events.columns = ['fm_courier_id', 'fm_failure_ts']
-            fm_events['fm_activity_day'] = fm_events['fm_failure_ts'].dt.date
-            
-            if not fm_events.empty:
-                # Step 2: Find last event of day per courier
-                fm_events['fm_last_event_of_day'] = fm_events.groupby(['fm_courier_id', 'fm_activity_day'])['fm_failure_ts'].transform('max')
-                fm_events['fm_last_30m_cutoff'] = fm_events['fm_last_event_of_day'] - pd.Timedelta(minutes=30)
+        try:
+            if 'lvl2_domestic_pickup/sign_in_failure_ts' in df.columns and 'fm_courier_id' in df.columns:
+                df['lvl2_domestic_pickup/sign_in_failure_ts'] = pd.to_datetime(df['lvl2_domestic_pickup/sign_in_failure_ts'], errors='coerce')
                 
-                # Step 3: Count failures in last 30 mins
-                fm_events['is_last_30m'] = fm_events['fm_failure_ts'] >= fm_events['fm_last_30m_cutoff']
-                
-                # Step 4: Aggregate by courier+day
-                fm_agg = fm_events.groupby(['fm_courier_id', 'fm_activity_day']).agg(
-                    fm_total_failures=('fm_failure_ts', 'count'),
-                    fm_last_30m_failures=('is_last_30m', 'sum')
-                ).reset_index()
-                
-                # Step 5: Calculate EOD rate and tier
-                fm_agg['fm_eod_failure_rate_pct'] = (fm_agg['fm_last_30m_failures'] / fm_agg['fm_total_failures'] * 100).round(2)
-                fm_agg['fm_failure_tier'] = fm_agg['fm_eod_failure_rate_pct'].apply(
-                    lambda x: 'a. FM Courier Failure Rate 20% and below' if x <= 20
-                    else 'b. FM Courier Failure Rate 50% and below' if x <= 50
-                    else 'c. Potential Fake Attempt - FM Courier Failure Rate above 50%'
-                )
-                
-                # Step 6: Merge back to main dataframe
-                for idx in df.index:
-                    if pd.notna(df.at[idx, 'fm_courier_id']) and pd.notna(df.at[idx, 'lvl2_domestic_pickup/sign_in_failure_ts']):
-                        courier = df.at[idx, 'fm_courier_id']
-                        day = df.at[idx, 'lvl2_domestic_pickup/sign_in_failure_ts'].date()
-                        match = fm_agg[(fm_agg['fm_courier_id'] == courier) & (fm_agg['fm_activity_day'] == day)]
-                        if not match.empty:
-                            df.at[idx, 'fm_activity_day'] = match.iloc[0]['fm_activity_day']
-                            df.at[idx, 'fm_eod_failure_rate_pct'] = match.iloc[0]['fm_eod_failure_rate_pct']
-                            df.at[idx, 'fm_failure_tier'] = match.iloc[0]['fm_failure_tier']
+                fm_with_ts = df[df['lvl2_domestic_pickup/sign_in_failure_ts'].notna()].copy()
+                if not fm_with_ts.empty:
+                    fm_with_ts['fm_activity_day'] = fm_with_ts['lvl2_domestic_pickup/sign_in_failure_ts'].dt.date
+                    
+                    # Aggregate: count failures per courier per day, find last event
+                    fm_daily = fm_with_ts.groupby(['fm_courier_id', 'fm_activity_day']).agg(
+                        fm_total=('lvl2_domestic_pickup/sign_in_failure_ts', 'count'),
+                        fm_last_ts=('lvl2_domestic_pickup/sign_in_failure_ts', 'max')
+                    ).reset_index()
+                    
+                    # Count failures in last 30 mins
+                    fm_daily['fm_30m_cutoff'] = fm_daily['fm_last_ts'] - pd.Timedelta(minutes=30)
+                    fm_daily['fm_last_30m'] = fm_daily.apply(
+                        lambda r: len(fm_with_ts[(fm_with_ts['fm_courier_id'] == r['fm_courier_id']) & 
+                                                 (fm_with_ts['fm_activity_day'] == r['fm_activity_day']) & 
+                                                 (fm_with_ts['lvl2_domestic_pickup/sign_in_failure_ts'] >= r['fm_30m_cutoff'])]), axis=1
+                    )
+                    
+                    # Calculate rate
+                    fm_daily['fm_eod_failure_rate_pct'] = (fm_daily['fm_last_30m'] / fm_daily['fm_total'] * 100).round(2)
+                    fm_daily['fm_failure_tier'] = fm_daily['fm_eod_failure_rate_pct'].apply(
+                        lambda x: 'a. FM Courier Failure Rate 20% and below' if x <= 20
+                        else 'b. FM Courier Failure Rate 50% and below' if x <= 50
+                        else 'c. Potential Fake Attempt - FM Courier Failure Rate above 50%'
+                    )
+                    
+                    # Merge back
+                    for _, row in fm_daily.iterrows():
+                        mask = (df['fm_courier_id'] == row['fm_courier_id']) & \
+                               (df['lvl2_domestic_pickup/sign_in_failure_ts'].notna()) & \
+                               (df['lvl2_domestic_pickup/sign_in_failure_ts'].dt.date == row['fm_activity_day'])
+                        df.loc[mask, 'fm_activity_day'] = row['fm_activity_day']
+                        df.loc[mask, 'fm_eod_failure_rate_pct'] = row['fm_eod_failure_rate_pct']
+                        df.loc[mask, 'fm_failure_tier'] = row['fm_failure_tier']
+        except Exception as e:
+            pass
         
         # === LM EOD FAILURE RATE ===
-        if 'lm_activity_day' not in df.columns:
-            df['lm_activity_day'] = pd.NaT
-        if 'lm_eod_failure_rate_pct' not in df.columns:
-            df['lm_eod_failure_rate_pct'] = np.nan
-        if 'lm_failure_tier' not in df.columns:
-            df['lm_failure_tier'] = None
+        df['lm_activity_day'] = None
+        df['lm_eod_failure_rate_pct'] = None
+        df['lm_failure_tier'] = None
         
-        if 'lm_courier_id' in df.columns:
-            # Convert all three LM failure timestamp columns
-            for col in ['lvl2_domestic_1st_attempt_failed_ts', 'lvl2_domestic_reattempts_failed_ts', 'lvl2_domestic_delivery_failed_ts']:
-                if col in df.columns:
-                    df[col] = pd.to_datetime(df[col], errors='coerce', format='ISO8601')
-            
-            # Step 1: Unpivot all three failure timestamp columns into single event list
-            lm_events = []
-            for col in ['lvl2_domestic_1st_attempt_failed_ts', 'lvl2_domestic_reattempts_failed_ts', 'lvl2_domestic_delivery_failed_ts']:
-                if col in df.columns:
-                    temp = df[df[col].notna()][['lm_courier_id', col]].copy()
-                    temp.columns = ['lm_courier_id', 'lm_failure_ts']
-                    lm_events.append(temp)
-            
-            if lm_events:
-                lm_all = pd.concat(lm_events, ignore_index=True)
-                lm_all['lm_activity_day'] = lm_all['lm_failure_ts'].dt.date
+        try:
+            if 'lm_courier_id' in df.columns:
+                # Convert timestamps
+                for col in ['lvl2_domestic_1st_attempt_failed_ts', 'lvl2_domestic_reattempts_failed_ts', 'lvl2_domestic_delivery_failed_ts']:
+                    if col in df.columns:
+                        df[col] = pd.to_datetime(df[col], errors='coerce')
                 
-                # Step 2: Find last event of day per courier (across all three types)
-                lm_all['lm_last_event_of_day'] = lm_all.groupby(['lm_courier_id', 'lm_activity_day'])['lm_failure_ts'].transform('max')
-                lm_all['lm_last_30m_cutoff'] = lm_all['lm_last_event_of_day'] - pd.Timedelta(minutes=30)
+                # Unpivot all three failure types
+                lm_events = []
+                for col in ['lvl2_domestic_1st_attempt_failed_ts', 'lvl2_domestic_reattempts_failed_ts', 'lvl2_domestic_delivery_failed_ts']:
+                    if col in df.columns:
+                        temp = df[df[col].notna()][['lm_courier_id', col]].copy()
+                        temp.columns = ['lm_courier_id', 'lm_failure_ts']
+                        lm_events.append(temp)
                 
-                # Step 3: Count failures in last 30 mins
-                lm_all['is_last_30m'] = lm_all['lm_failure_ts'] >= lm_all['lm_last_30m_cutoff']
-                
-                # Step 4: Aggregate by courier+day
-                lm_agg = lm_all.groupby(['lm_courier_id', 'lm_activity_day']).agg(
-                    lm_total_failures=('lm_failure_ts', 'count'),
-                    lm_last_30m_failures=('is_last_30m', 'sum')
-                ).reset_index()
-                
-                # Step 5: Calculate EOD rate and tier
-                lm_agg['lm_eod_failure_rate_pct'] = (lm_agg['lm_last_30m_failures'] / lm_agg['lm_total_failures'] * 100).round(2)
-                lm_agg['lm_failure_tier'] = lm_agg['lm_eod_failure_rate_pct'].apply(
-                    lambda x: 'a. LM Courier Failure Rate 20% and below' if x <= 20
-                    else 'b. LM Courier Failure Rate 50% and below' if x <= 50
-                    else 'c. Potential Fake Attempt - LM Courier Failure Rate above 50%'
-                )
-                
-                # Step 6: Merge back to main dataframe
-                for idx in df.index:
-                    if pd.notna(df.at[idx, 'lm_courier_id']):
-                        for ts_col in ['lvl2_domestic_1st_attempt_failed_ts', 'lvl2_domestic_reattempts_failed_ts', 'lvl2_domestic_delivery_failed_ts']:
-                            if pd.notna(df.at[idx, ts_col]):
-                                courier = df.at[idx, 'lm_courier_id']
-                                day = df.at[idx, ts_col].date()
-                                match = lm_agg[(lm_agg['lm_courier_id'] == courier) & (lm_agg['lm_activity_day'] == day)]
-                                if not match.empty:
-                                    df.at[idx, 'lm_activity_day'] = match.iloc[0]['lm_activity_day']
-                                    df.at[idx, 'lm_eod_failure_rate_pct'] = match.iloc[0]['lm_eod_failure_rate_pct']
-                                    df.at[idx, 'lm_failure_tier'] = match.iloc[0]['lm_failure_tier']
-                                break
+                if lm_events:
+                    lm_all = pd.concat(lm_events, ignore_index=True)
+                    if not lm_all.empty:
+                        lm_all['lm_activity_day'] = lm_all['lm_failure_ts'].dt.date
+                        
+                        # Aggregate per courier per day
+                        lm_daily = lm_all.groupby(['lm_courier_id', 'lm_activity_day']).agg(
+                            lm_total=('lm_failure_ts', 'count'),
+                            lm_last_ts=('lm_failure_ts', 'max')
+                        ).reset_index()
+                        
+                        # Count last 30 mins
+                        lm_daily['lm_30m_cutoff'] = lm_daily['lm_last_ts'] - pd.Timedelta(minutes=30)
+                        lm_daily['lm_last_30m'] = lm_daily.apply(
+                            lambda r: len(lm_all[(lm_all['lm_courier_id'] == r['lm_courier_id']) & 
+                                                (lm_all['lm_activity_day'] == r['lm_activity_day']) & 
+                                                (lm_all['lm_failure_ts'] >= r['lm_30m_cutoff'])]), axis=1
+                        )
+                        
+                        # Calculate rate
+                        lm_daily['lm_eod_failure_rate_pct'] = (lm_daily['lm_last_30m'] / lm_daily['lm_total'] * 100).round(2)
+                        lm_daily['lm_failure_tier'] = lm_daily['lm_eod_failure_rate_pct'].apply(
+                            lambda x: 'a. LM Courier Failure Rate 20% and below' if x <= 20
+                            else 'b. LM Courier Failure Rate 50% and below' if x <= 50
+                            else 'c. Potential Fake Attempt - LM Courier Failure Rate above 50%'
+                        )
+                        
+                        # Merge back
+                        for _, row in lm_daily.iterrows():
+                            mask = (df['lm_courier_id'] == row['lm_courier_id'])
+                            for ts_col in ['lvl2_domestic_1st_attempt_failed_ts', 'lvl2_domestic_reattempts_failed_ts', 'lvl2_domestic_delivery_failed_ts']:
+                                if ts_col in df.columns:
+                                    ts_mask = (df[ts_col].notna()) & (df[ts_col].dt.date == row['lm_activity_day'])
+                                    df.loc[mask & ts_mask, 'lm_activity_day'] = row['lm_activity_day']
+                                    df.loc[mask & ts_mask, 'lm_eod_failure_rate_pct'] = row['lm_eod_failure_rate_pct']
+                                    df.loc[mask & ts_mask, 'lm_failure_tier'] = row['lm_failure_tier']
+        except Exception as e:
+            pass
     
     except Exception as e:
         pass
