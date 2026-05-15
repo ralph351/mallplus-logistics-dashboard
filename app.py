@@ -889,16 +889,18 @@ with tab1:
             st.info("✅ No geolocation violations detected")
         st.divider()
         st.markdown("**Table 2: Courier Failure Rate Analysis (EOD)**")
-        st.caption("*Note: Mock data FM failure timestamps need to be populated for EOD analysis.*")
-        try:
-            fm_eod_data = df_filtered[df_filtered['fm_eod_failure_rate_pct'].notna()]
-            if len(fm_eod_data) > 0 and 'fm_courier_id' in fm_eod_data.columns:
+        # Debug: Check if column exists and has data
+        if 'fm_eod_failure_rate_pct' in df_filtered.columns:
+            fm_eod_count = df_filtered['fm_eod_failure_rate_pct'].notna().sum()
+            st.caption(f"*EOD data: {fm_eod_count} records found*")
+            if fm_eod_count > 0:
+                fm_eod_data = df_filtered[df_filtered['fm_eod_failure_rate_pct'].notna()]
                 fm_eod = fm_eod_data[['fm_3pl_name', 'fm_courier_id', 'fm_activity_day', 'fm_eod_failure_rate_pct', 'fm_failure_tier']].drop_duplicates(subset=['fm_courier_id'])
                 st.dataframe(fm_eod.sort_values('fm_eod_failure_rate_pct', ascending=False), use_container_width=True, height=300)
             else:
-                st.info("🔄 EOD failure rate: Identifies couriers with >50% failures in last 30 mins of their daily shift. Awaiting FM failure timestamp data.")
-        except Exception as e:
-            st.info("🔄 EOD failure rate: Identifies couriers with >50% failures in last 30 mins of their daily shift. Awaiting FM failure timestamp data.")
+                st.info("🔄 FM EOD analysis: Ready to compute once failure timestamps are processed")
+        else:
+            st.info("🔄 FM EOD analysis: Column not found (compute_anomalies may have error)")
     
     with fake_tab2:
         st.subheader("b. Potential Fake Delivery Attempt")
@@ -912,16 +914,18 @@ with tab1:
             st.info("✅ No geolocation violations detected")
         st.divider()
         st.markdown("**Table 2: Courier Failure Rate Analysis (EOD)**")
-        st.caption("*Note: Mock data LM failure timestamps need to be populated for EOD analysis.*")
-        try:
-            lm_eod_data = df_filtered[df_filtered['lm_eod_failure_rate_pct'].notna()]
-            if len(lm_eod_data) > 0 and 'lm_courier_id' in lm_eod_data.columns:
+        # Debug: Check if column exists and has data
+        if 'lm_eod_failure_rate_pct' in df_filtered.columns:
+            lm_eod_count = df_filtered['lm_eod_failure_rate_pct'].notna().sum()
+            st.caption(f"*EOD data: {lm_eod_count} records found*")
+            if lm_eod_count > 0:
+                lm_eod_data = df_filtered[df_filtered['lm_eod_failure_rate_pct'].notna()]
                 lm_eod = lm_eod_data[['fm_3pl_name', 'lm_courier_id', 'lm_activity_day', 'lm_eod_failure_rate_pct', 'lm_failure_tier']].drop_duplicates(subset=['lm_courier_id'])
                 st.dataframe(lm_eod.sort_values('lm_eod_failure_rate_pct', ascending=False), use_container_width=True, height=300)
             else:
-                st.info("🔄 EOD failure rate: Identifies couriers with >50% failures in last 30 mins of their daily shift. Awaiting LM failure timestamp data.")
-        except Exception as e:
-            st.info("🔄 EOD failure rate: Identifies couriers with >50% failures in last 30 mins of their daily shift. Awaiting LM failure timestamp data.")
+                st.info("🔄 LM EOD analysis: Ready to compute once failure timestamps are processed")
+        else:
+            st.info("🔄 LM EOD analysis: Column not found (compute_anomalies may have error)")
 
 # TAB 2: Theft & Tampering
 with tab2:
