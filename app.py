@@ -902,6 +902,8 @@ with tab2:
             available_dimensions.append('origin_region')
         if 'destination_region' in df_filtered.columns:
             available_dimensions.append('destination_region')
+        if 'fm_3pl_name' in df_filtered.columns:
+            available_dimensions.append('fm_3pl_name')
         if 'lm_3pl_name' in df_filtered.columns:
             available_dimensions.append('lm_3pl_name')
         
@@ -956,33 +958,15 @@ with tab2:
     
     st.divider()
     
-    # SECTION C: Courier Performance Scorecard (PHASE 2A)
-    st.markdown("### SECTION C: Courier Performance Scorecard (Phase 2)")
-    
-    try:
-        # Simple dropdown
-        dim_choice = st.selectbox("View by:", ["3PL Partner", "Origin Region"], key="c_dim")
-        dim_col = "lm_3pl_name" if dim_choice == "3PL Partner" else "origin_region"
-        
-        # Build scorecard
-        courier_df = build_courier_scorecard(df_filtered, [dim_col])
-        
-        if courier_df is not None and not courier_df.empty:
-            # Sort and display
-            courier_df = courier_df.sort_values("Success %", ascending=False)
-            st.dataframe(courier_df, use_container_width=True, height=400)
-            st.caption(f"📊 {len(courier_df)} {dim_choice} groups | Sorted by Success %")
-        else:
-            st.info("✅ No courier data available")
-    
-    except Exception as e:
-        st.error(f"Courier scorecard error: {str(e)}")
-    
+    # SECTION C: Removed - Merged into Section B
     st.divider()
+    st.caption("💡 Tip: Use 'fm_3pl_name' or 'lm_3pl_name' in Section B filters above to analyze Courier Performance by 3PL")
     
     # SECTION D: Route Performance Matrix (PHASE 2B - Coming Soon)
     st.markdown("### SECTION D: Route Performance Matrix (Phase 2B)")
     st.info("🔄 Coming in Phase 2B...")
+    
+    st.divider()
     
     st.divider()
     
