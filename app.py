@@ -936,7 +936,14 @@ except:
 
 # 3g. Failed Delivery (anchored to lvl1_final_status_ts)
 try:
-    failed_pct = (df_filtered['final_status'].isin(['FAILED', 'RTS'])).sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
+    # 3g: Failed Delivery % = Failed / (Delivered + Failed)
+    # Only count completed orders (exclude in-transit)
+    completed_mask = (df_filtered['final_status'] != '') & (df_filtered['final_status'].notna())
+    delivered_count = (df_filtered[completed_mask]['final_status'] == 'DELIVERED').sum()
+    failed_count = (df_filtered[completed_mask]['final_status'].isin(['RETURNED', 'PACKAGE_DAMAGED', 'PACKAGE_LOST'])).sum()
+    total_completed = delivered_count + failed_count
+    
+    failed_pct = (failed_count / total_completed * 100) if total_completed > 0 else 0
     
     st.metric("3g. Failed Delivery %", f"{failed_pct:.1f}%", delta="vs target <5%")
     
@@ -945,7 +952,10 @@ try:
     if 'lvl1_final_status_ts' in df_trend_fd.columns and not df_trend_fd.empty:
         df_trend_fd['time_bucket'] = get_time_column(df_trend_fd['lvl1_final_status_ts'], granularity)
         trend_fd = df_trend_fd.groupby('time_bucket').apply(
-            lambda x: (x['final_status'].isin(['FAILED', 'RTS'])).sum() / len(x) * 100 if len(x) > 0 else 0
+            lambda x: (
+                (x['final_status'].isin(['RETURNED', 'PACKAGE_DAMAGED', 'PACKAGE_LOST'])).sum() / 
+                ((x['final_status'] == 'DELIVERED').sum() + (x['final_status'].isin(['RETURNED', 'PACKAGE_DAMAGED', 'PACKAGE_LOST'])).sum()) * 100
+            ) if (x['final_status'] == 'DELIVERED').sum() + (x['final_status'].isin(['RETURNED', 'PACKAGE_DAMAGED', 'PACKAGE_LOST'])).sum() > 0 else 0
         ).reset_index()
         trend_fd.columns = ['time_bucket', 'failed_pct']
         trend_fd = trend_fd.sort_values('time_bucket')
