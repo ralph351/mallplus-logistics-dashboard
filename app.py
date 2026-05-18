@@ -1152,7 +1152,7 @@ with tab1:
         lm_geo = df_filtered[df_filtered['flag_fake_attempt_lm_geolocation'] == 1].copy()
         st.metric("Parcels Flagged (Geolocation)", len(lm_geo))
         if len(lm_geo) > 0:
-            cols = [c for c in ['lm_3pl_name', 'tracking_number', 'destination_region', 'lm_courier_id', 'destination_geolocation', 'domestic_1st_attempt_failed_geolocation', 'fd_flag_fake_attempt_detailed'] if c in lm_geo.columns]
+            cols = [c for c in ['lm_3pl_name', 'tracking_number', 'destination_region', 'lm_courier_id', 'destination_geolocation', 'domestic_1st_attempt_failed_geolocation', 'domestic_reattempts_failed_geolocation', 'domestic_delivery_failed_geolocation', 'fd_flag_fake_attempt_detailed'] if c in lm_geo.columns]
             st.dataframe(lm_geo[cols], use_container_width=True, height=300)
         else:
             st.info("✅ No geolocation violations detected")
