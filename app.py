@@ -113,6 +113,13 @@ def prepare_data(df):
             if valid_mask.any():
                 df.loc[valid_mask, 'rfh_to_fa_days'] = (df.loc[valid_mask, 'lvl2_first_attempt_ts'] - df.loc[valid_mask, 'lvl1_READY_FOR_HANDOVER_ts']).dt.total_seconds() / 86400
     
+        # Add KPI flags for final status analysis
+        df['is_delivered'] = (df['final_status'] == 'DELIVERED').astype(int)
+        df['is_failed_delivery'] = df['final_status'].isin(['RETURNED']).astype(int)
+        df['is_package_damaged'] = (df['final_status'] == 'PACKAGE_DAMAGED').astype(int)
+        df['is_package_lost'] = (df['final_status'] == 'PACKAGE_LOST').astype(int)
+        df['is_package_cancelled'] = (df['final_status'] == 'PACKAGE_CANCELLED').astype(int)
+        
     except Exception as e:
         st.warning(f"Data prep issue: {str(e)}")
     
@@ -1061,8 +1068,8 @@ st.markdown("## 5️⃣ Lost & Damaged")
 try:
     col1, col2 = st.columns(2)
     
-    lost_pct = (df_filtered['final_status'] == 'LOST').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
-    damaged_pct = (df_filtered['final_status'] == 'DAMAGED').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
+    lost_pct = (df_filtered['is_package_lost'].sum()) / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
+    damaged_pct = (df_filtered['is_package_damaged'].sum()) / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
     
     with col1:
         st.metric("5a. Lost %", f"{lost_pct:.1f}%", delta="vs target <0.1%")
