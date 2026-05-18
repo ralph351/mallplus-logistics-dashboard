@@ -1500,4 +1500,4 @@ with tab6:
 
 st.divider()
 st.markdown("---")
-st.caption("🚚 MallPlus Logistics Dashboard v3.1 | Phase 2C LIVE | Last sync: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S GMT+8"))
+st.caption("🚚 MallPlus Logistics Dashboard v3.1 | Phase 2C LIVE | Build: 20260519-0700 | Last sync: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S GMT+8"))
