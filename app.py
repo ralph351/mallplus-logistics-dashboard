@@ -714,9 +714,6 @@ try:
                 'failed_delivery': ['sum', 'count']
             }
             
-            # Add p90 calculation
-            p90_data = pivot_data.groupby(selected_dimensions)['rfh_to_fa_days'].quantile(0.9).to_frame(name='rfh_to_fa_p90')
-            
             # Perform groupby aggregation
             scorecard = pivot_data.groupby(selected_dimensions, dropna=False).agg(agg_dict).reset_index()
             
@@ -737,13 +734,16 @@ try:
             }
             scorecard = scorecard.rename(columns=rename_map)
             
-            # Merge p90 data
-            scorecard = scorecard.merge(p90_data.reset_index(), on=selected_dimensions, how='left')
+            # Add p90 calculation - properly reset index with names
+            p90_data = pivot_data.groupby(selected_dimensions)['rfh_to_fa_days'].quantile(0.9).reset_index(name='rfh_to_fa_p90')
             
-            # Calculate percentages
-            scorecard['Pickup_Compliance_%'] = (scorecard['Pickup_Pass'] / scorecard['Pickup_Total'] * 100).round(2)
-            scorecard['Forward_Compliance_%'] = (scorecard['Forward_Pass'] / scorecard['Forward_Total'] * 100).round(2)
-            scorecard['Failed_Delivery_%'] = (scorecard['Failed_Count'] / scorecard['Delivery_Total'] * 100).round(2)
+            # Merge p90 data
+            scorecard = scorecard.merge(p90_data, on=selected_dimensions, how='left')
+            
+            # Calculate percentages (handle division by zero)
+            scorecard['Pickup_Compliance_%'] = (scorecard['Pickup_Pass'] / scorecard['Pickup_Total'].replace(0, np.nan) * 100).round(2)
+            scorecard['Forward_Compliance_%'] = (scorecard['Forward_Pass'] / scorecard['Forward_Total'].replace(0, np.nan) * 100).round(2)
+            scorecard['Failed_Delivery_%'] = (scorecard['Failed_Count'] / scorecard['Delivery_Total'].replace(0, np.nan) * 100).round(2)
             
             # Build final display dataframe (drop intermediate columns)
             display_cols = selected_dimensions + [
