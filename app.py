@@ -371,60 +371,51 @@ def apply_filters(df, oc_dates, rfh_dates, transit_dates, final_dates, granulari
 # PHASE 2 FEATURE FUNCTIONS
 # ============================================================================
 
-def build_courier_scorecard(df_filtered, selected_dimensions, group_by_lm=True):
-    """Feature 1: Courier Performance Scorecard with color coding."""
+def build_courier_scorecard(df, dimension_cols):
+    """
+    Build courier performance scorecard with proper type handling.
+    """
     try:
-        if df_filtered.empty or not selected_dimensions:
+        if df.empty:
             return None
         
-        pivot_data = df_filtered.copy()
+        # Filter to completed orders only
+        completed = df[(df['final_status'].notna()) & (df['final_status'] != '')].copy()
         
-        # Determine courier ID column
-        courier_col = 'lm_courier_id' if group_by_lm else 'fm_courier_id'
-        
-        if courier_col not in pivot_data.columns:
+        if completed.empty:
             return None
         
-        # Add dimension for courier if not already present
-        agg_keys = list(selected_dimensions)
-        if courier_col not in agg_keys:
-            agg_keys.insert(0, courier_col)
+        # Build metrics per dimension
+        metrics = []
+        for dims in completed.groupby(dimension_cols):
+            group = dims[1]
+            
+            # Count metrics
+            delivered = (group['final_status'] == 'DELIVERED').sum()
+            failed = (group['final_status'].isin(['RETURNED', 'PACKAGE_DAMAGED', 'PACKAGE_LOST'])).sum()
+            total = delivered + failed
+            
+            success_pct = (delivered / total * 100) if total > 0 else 0
+            failed_pct = (failed / total * 100) if total > 0 else 0
+            
+            # Lead time (use numeric conversion)
+            lead_times = pd.to_numeric(group['rfh_to_fa_days'], errors='coerce')
+            avg_lead_time = lead_times.mean() if not lead_times.empty else 0
+            
+            # EOD failure rate (if column exists)
+            eod_rate = pd.to_numeric(group['lm_eod_failure_rate_pct'], errors='coerce').mean()
+            eod_rate = eod_rate if pd.notna(eod_rate) else 0
+            
+            row = {**dict(zip(dimension_cols, dims[0]))}
+            row['Success %'] = round(success_pct, 1)
+            row['Failed %'] = round(failed_pct, 1)
+            row['Avg Lead Time (days)'] = round(avg_lead_time, 1)
+            row['EOD Failure Rate %'] = round(eod_rate, 1)
+            row['Orders'] = total
+            
+            metrics.append(row)
         
-        # Calculate metrics
-        pivot_data['success'] = (pivot_data['final_status'] == 'DELIVERED').astype(int)
-        pivot_data['failed'] = ~pivot_data['final_status'].isin(['DELIVERED', '']).astype(int)
-        
-        # Aggregate
-        scorecard = pivot_data.groupby(agg_keys, dropna=False).agg({
-            'success': ['sum', 'count'],
-            'failed': 'sum',
-            'rfh_to_fa_days': 'mean'
-        }).reset_index()
-        
-        # Flatten columns
-        scorecard.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in scorecard.columns.values]
-        scorecard.rename(columns={
-            'success_sum': 'delivered',
-            'success_count': 'total',
-            'failed_sum': 'failed_count',
-            'rfh_to_fa_days_mean': 'avg_lead_time'
-        }, inplace=True)
-        
-        # Calculate metrics
-        scorecard['success_pct'] = (scorecard['delivered'] / scorecard['total'].replace(0, np.nan) * 100).round(2)
-        scorecard['failed_pct'] = (scorecard['failed_count'] / scorecard['total'].replace(0, np.nan) * 100).round(2)
-        
-        # EOD failure rate
-        if group_by_lm and 'lm_eod_failure_rate_pct' in pivot_data.columns:
-            eod_data = pivot_data.groupby(courier_col)['lm_eod_failure_rate_pct'].mean().reset_index()
-            eod_data.rename(columns={'lm_eod_failure_rate_pct': 'eod_failure_rate'}, inplace=True)
-            scorecard = scorecard.merge(eod_data, left_on=courier_col, right_on=courier_col, how='left')
-        elif not group_by_lm and 'fm_eod_failure_rate_pct' in pivot_data.columns:
-            eod_data = pivot_data.groupby(courier_col)['fm_eod_failure_rate_pct'].mean().reset_index()
-            eod_data.rename(columns={'fm_eod_failure_rate_pct': 'eod_failure_rate'}, inplace=True)
-            scorecard = scorecard.merge(eod_data, left_on=courier_col, right_on=courier_col, how='left')
-        
-        return scorecard
+        return pd.DataFrame(metrics) if metrics else None
     
     except Exception as e:
         st.error(f"Courier scorecard error: {str(e)}")
@@ -996,7 +987,8 @@ with tab2:
                         else:
                             return 'background-color: #FFB6C6'  # Red
                     
-                    st.dataframe(display_courier.style.applymap(color_score, subset=['success_pct']), use_container_width=True, height=400)
+                    styled_courier = display_courier.style.map(color_score, subset=['success_pct'])
+                    st.dataframe(styled_courier, use_container_width=True, height=400)
                 else:
                     st.info("No courier data available for selected dimensions")
     
@@ -1035,7 +1027,8 @@ with tab2:
                 else:
                     return 'background-color: #90EE90'
             
-            st.dataframe(breach_df.style.applymap(color_risk, subset=['Risk Level']), use_container_width=True, height=400)
+            styled_breach = breach_df.style.map(color_risk, subset=['Risk Level'])
+            st.dataframe(styled_breach, use_container_width=True, height=400)
             st.caption(f"Showing top 20 at-risk orders. {len(breach_df)} orders currently in transit.")
         else:
             st.info("✅ No in-transit orders approaching SLA breach")
