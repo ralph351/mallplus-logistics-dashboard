@@ -1,7 +1,12 @@
 """
-MallPlus Logistics Dashboard - Professional Multi-Dimensional Analytics v3.0
-Comprehensive KPI dashboard with independent timestamp filters, time granularity,
-and section-based organization (Network, Cost, Operations, Breach, Lost & Damaged)
+MallPlus Logistics Dashboard - Phase 2: Multi-Tab Architecture & Advanced Analytics v3.1
+Refactored from single-page to 6-tab structure with Phase 2 features:
+- Tab 1: EXECUTIVE (KPI summary + trends)
+- Tab 2: OPERATIONS (Courier Scorecard + Route Matrix + Breach Prediction)
+- Tab 3: COST (3PL Comparative Analysis)
+- Tab 4: PERFORMANCE (Compliance & Lost/Damaged trends)
+- Tab 5: EXCEPTIONS (Prioritized anomaly queue)
+- Tab 6: FORECASTING (Placeholder for Phase 3)
 """
 
 import streamlit as st
@@ -19,14 +24,14 @@ import os
 # ============================================================================
 
 st.set_page_config(
-    page_title="MallPlus Logistics Dashboard",
+    page_title="MallPlus Logistics Dashboard - Phase 2",
     page_icon="🚚",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-st.title("🚚 MallPlus Logistics Dashboard v3.0")
-st.markdown("**Professional Multi-Dimensional Analytics** | Last Updated: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S GMT+8") + " | Ready ✅")
+st.title("🚚 MallPlus Logistics Dashboard v3.1")
+st.markdown("**Multi-Tab Analytics | Phase 2 Implementation** | Last Updated: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S GMT+8") + " | Ready ✅")
 
 # ============================================================================
 # DATA LOADING
@@ -156,7 +161,7 @@ def compute_anomalies(df):
                 if o and f and haversine(o[1], o[0], f[1], f[0]) >= 1.0:
                     df.at[idx, 'flag_fake_attempt_fm_geolocation'] = 1
         
-        # LM Geolocation: >1km from destination (check all three attempt types)
+        # LM Geolocation: >1km from destination
         df['flag_fake_attempt_lm_geolocation'] = 0
         df['fd_flag_fake_attempt_detailed'] = None
         
@@ -166,31 +171,25 @@ def compute_anomalies(df):
                 if not d:
                     continue
                 
-                # Check all three delivery attempt geolocations
                 flags = []
-                
-                # 1st attempt
                 if 'domestic_1st_attempt_failed_geolocation' in df.columns:
                     f1 = parse_geo(df.iloc[idx]['domestic_1st_attempt_failed_geolocation'])
                     if f1 and haversine(d[1], d[0], f1[1], f1[0]) >= 1.0:
                         flags.append('1st Attempt')
                         df.at[idx, 'flag_fake_attempt_lm_geolocation'] = 1
                 
-                # Reattempts
                 if 'domestic_reattempts_failed_geolocation' in df.columns:
                     fr = parse_geo(df.iloc[idx]['domestic_reattempts_failed_geolocation'])
                     if fr and haversine(d[1], d[0], fr[1], fr[0]) >= 1.0:
                         flags.append('Reattempt')
                         df.at[idx, 'flag_fake_attempt_lm_geolocation'] = 1
                 
-                # Final delivery
                 if 'domestic_delivery_failed_geolocation' in df.columns:
                     ff = parse_geo(df.iloc[idx]['domestic_delivery_failed_geolocation'])
                     if ff and haversine(d[1], d[0], ff[1], ff[0]) >= 1.0:
                         flags.append('Final Attempt')
                         df.at[idx, 'flag_fake_attempt_lm_geolocation'] = 1
                 
-                # Build detailed flag message
                 if flags:
                     attempts_str = ', '.join(flags)
                     df.at[idx, 'fd_flag_fake_attempt_detailed'] = f"Potential Fake Attempt - Geotagged >1km away at: {attempts_str}"
@@ -207,14 +206,11 @@ def compute_anomalies(df):
                 fm_with_ts = df[df['lvl2_domestic_pickup/sign_in_failure_ts'].notna()].copy()
                 if not fm_with_ts.empty:
                     fm_with_ts['fm_activity_day'] = fm_with_ts['lvl2_domestic_pickup/sign_in_failure_ts'].dt.date
-                    
-                    # Aggregate: count failures per courier per day, find last event
                     fm_daily = fm_with_ts.groupby(['fm_courier_id', 'fm_activity_day']).agg(
                         fm_total=('lvl2_domestic_pickup/sign_in_failure_ts', 'count'),
                         fm_last_ts=('lvl2_domestic_pickup/sign_in_failure_ts', 'max')
                     ).reset_index()
                     
-                    # Count failures in last 30 mins
                     fm_daily['fm_30m_cutoff'] = fm_daily['fm_last_ts'] - pd.Timedelta(minutes=30)
                     fm_daily['fm_last_30m'] = fm_daily.apply(
                         lambda r: len(fm_with_ts[(fm_with_ts['fm_courier_id'] == r['fm_courier_id']) & 
@@ -222,7 +218,6 @@ def compute_anomalies(df):
                                                  (fm_with_ts['lvl2_domestic_pickup/sign_in_failure_ts'] >= r['fm_30m_cutoff'])]), axis=1
                     )
                     
-                    # Calculate rate
                     fm_daily['fm_eod_failure_rate_pct'] = (fm_daily['fm_last_30m'] / fm_daily['fm_total'] * 100).round(2)
                     fm_daily['fm_failure_tier'] = fm_daily['fm_eod_failure_rate_pct'].apply(
                         lambda x: 'a. FM Courier Failure Rate 20% and below' if x <= 20
@@ -230,7 +225,6 @@ def compute_anomalies(df):
                         else 'c. Potential Fake Attempt - FM Courier Failure Rate above 50%'
                     )
                     
-                    # Merge back
                     for _, row in fm_daily.iterrows():
                         mask = (df['fm_courier_id'] == row['fm_courier_id']) & \
                                (df['lvl2_domestic_pickup/sign_in_failure_ts'].notna()) & \
@@ -248,12 +242,10 @@ def compute_anomalies(df):
         
         try:
             if 'lm_courier_id' in df.columns:
-                # Convert timestamps
                 for col in ['lvl2_domestic_1st_attempt_failed_ts', 'lvl2_domestic_reattempts_failed_ts', 'lvl2_domestic_delivery_failed_ts']:
                     if col in df.columns:
                         df[col] = pd.to_datetime(df[col], errors='coerce')
                 
-                # Unpivot all three failure types
                 lm_events = []
                 for col in ['lvl2_domestic_1st_attempt_failed_ts', 'lvl2_domestic_reattempts_failed_ts', 'lvl2_domestic_delivery_failed_ts']:
                     if col in df.columns:
@@ -265,14 +257,11 @@ def compute_anomalies(df):
                     lm_all = pd.concat(lm_events, ignore_index=True)
                     if not lm_all.empty:
                         lm_all['lm_activity_day'] = lm_all['lm_failure_ts'].dt.date
-                        
-                        # Aggregate per courier per day
                         lm_daily = lm_all.groupby(['lm_courier_id', 'lm_activity_day']).agg(
                             lm_total=('lm_failure_ts', 'count'),
                             lm_last_ts=('lm_failure_ts', 'max')
                         ).reset_index()
                         
-                        # Count last 30 mins
                         lm_daily['lm_30m_cutoff'] = lm_daily['lm_last_ts'] - pd.Timedelta(minutes=30)
                         lm_daily['lm_last_30m'] = lm_daily.apply(
                             lambda r: len(lm_all[(lm_all['lm_courier_id'] == r['lm_courier_id']) & 
@@ -280,7 +269,6 @@ def compute_anomalies(df):
                                                 (lm_all['lm_failure_ts'] >= r['lm_30m_cutoff'])]), axis=1
                         )
                         
-                        # Calculate rate
                         lm_daily['lm_eod_failure_rate_pct'] = (lm_daily['lm_last_30m'] / lm_daily['lm_total'] * 100).round(2)
                         lm_daily['lm_failure_tier'] = lm_daily['lm_eod_failure_rate_pct'].apply(
                             lambda x: 'a. LM Courier Failure Rate 20% and below' if x <= 20
@@ -288,7 +276,6 @@ def compute_anomalies(df):
                             else 'c. Potential Fake Attempt - LM Courier Failure Rate above 50%'
                         )
                         
-                        # Merge back
                         for _, row in lm_daily.iterrows():
                             mask = (df['lm_courier_id'] == row['lm_courier_id'])
                             for ts_col in ['lvl2_domestic_1st_attempt_failed_ts', 'lvl2_domestic_reattempts_failed_ts', 'lvl2_domestic_delivery_failed_ts']:
@@ -299,124 +286,359 @@ def compute_anomalies(df):
                                     df.loc[mask & ts_mask, 'lm_failure_tier'] = row['lm_failure_tier']
         except Exception as e:
             pass
+        
+        # === SLA BREACH DETECTION ===
+        df['is_forward_soft_breach'] = 0
+        df['is_forward_hard_breach'] = 0
+        df['is_rts_soft_breach'] = 0
+        df['is_rts_hard_breach'] = 0
+        
+        try:
+            if 'forward_delivery_compliance' in df.columns:
+                df['is_forward_soft_breach'] = ((df['forward_delivery_compliance'] == 'soft_breach').astype(int))
+                df['is_forward_hard_breach'] = ((df['forward_delivery_compliance'] == 'hard_breach').astype(int))
+            
+            if 'rts_delivery_compliance' in df.columns:
+                df['is_rts_soft_breach'] = ((df['rts_delivery_compliance'] == 'soft_breach').astype(int))
+                df['is_rts_hard_breach'] = ((df['rts_delivery_compliance'] == 'hard_breach').astype(int))
+        except Exception as e:
+            pass
+        
+        return df
     
     except Exception as e:
-        pass
-    
-    return df
+        st.warning(f"Anomaly detection issue: {str(e)}")
+        return df
 
-def apply_filters(df, oc_dates, rfh_dates, transit_dates, final_dates, granularity, three_pl, origin_region=None, origin_address_id=None, dest_region=None, dest_address_id=None):
-    """Apply multi-dimensional filters to dataframe. Safe column checking."""
+
+def get_time_column(series, granularity):
+    """Extract time bucket from timestamp series based on granularity."""
+    try:
+        if granularity == "Daily":
+            return series.dt.date
+        elif granularity == "Weekly":
+            return series.dt.isocalendar().week.astype(str).str.zfill(2) + "-W" + series.dt.strftime("%B")
+        elif granularity == "Monthly":
+            return series.dt.strftime("%Y-%m")
+    except:
+        return series.dt.date if hasattr(series, 'dt') else series
+
+
+def apply_filters(df, oc_dates, rfh_dates, transit_dates, final_dates, granularity, three_pl, 
+                  origin_region, origin_address_id, dest_region, dest_address_id):
+    """Apply all filters to dataframe."""
     df_filtered = df.copy()
     
-    # 3PL filter (only if column exists)
-    if three_pl and three_pl != "All 3PLs" and 'lm_3pl_name' in df.columns:
+    if oc_dates and 'order_create_ts' in df_filtered.columns:
+        df_filtered['order_create_ts'] = pd.to_datetime(df_filtered['order_create_ts'], errors='coerce')
+        df_filtered = df_filtered[(df_filtered['order_create_ts'].dt.date >= oc_dates[0]) & 
+                                 (df_filtered['order_create_ts'].dt.date <= oc_dates[1])]
+    
+    if rfh_dates and 'lvl1_READY_FOR_HANDOVER_ts' in df_filtered.columns:
+        df_filtered['lvl1_READY_FOR_HANDOVER_ts'] = pd.to_datetime(df_filtered['lvl1_READY_FOR_HANDOVER_ts'], errors='coerce')
+        df_filtered = df_filtered[(df_filtered['lvl1_READY_FOR_HANDOVER_ts'].dt.date >= rfh_dates[0]) & 
+                                 (df_filtered['lvl1_READY_FOR_HANDOVER_ts'].dt.date <= rfh_dates[1])]
+    
+    if transit_dates and 'lvl1_IN_TRANSIT_ts' in df_filtered.columns:
+        df_filtered['lvl1_IN_TRANSIT_ts'] = pd.to_datetime(df_filtered['lvl1_IN_TRANSIT_ts'], errors='coerce')
+        df_filtered = df_filtered[(df_filtered['lvl1_IN_TRANSIT_ts'].dt.date >= transit_dates[0]) & 
+                                 (df_filtered['lvl1_IN_TRANSIT_ts'].dt.date <= transit_dates[1])]
+    
+    if final_dates and 'lvl1_final_status_ts' in df_filtered.columns:
+        df_filtered['lvl1_final_status_ts'] = pd.to_datetime(df_filtered['lvl1_final_status_ts'], errors='coerce')
+        df_filtered = df_filtered[(df_filtered['lvl1_final_status_ts'].dt.date >= final_dates[0]) & 
+                                 (df_filtered['lvl1_final_status_ts'].dt.date <= final_dates[1])]
+    
+    if three_pl != "All 3PLs" and 'lm_3pl_name' in df_filtered.columns:
         df_filtered = df_filtered[df_filtered['lm_3pl_name'] == three_pl]
     
-    # Origin Region filter
-    if origin_region and origin_region != "All Regions" and 'origin_region' in df.columns:
+    if origin_region != "All Regions" and 'origin_region' in df_filtered.columns:
         df_filtered = df_filtered[df_filtered['origin_region'] == origin_region]
     
-    # Origin Address ID filter
-    if origin_address_id and origin_address_id != "All Addresses" and 'lvl2_origin_address_id' in df.columns:
+    if origin_address_id != "All Addresses" and 'lvl2_origin_address_id' in df_filtered.columns:
         df_filtered = df_filtered[df_filtered['lvl2_origin_address_id'] == origin_address_id]
     
-    # Destination Region filter
-    if dest_region and dest_region != "All Regions" and 'destination_region' in df.columns:
+    if dest_region != "All Regions" and 'destination_region' in df_filtered.columns:
         df_filtered = df_filtered[df_filtered['destination_region'] == dest_region]
     
-    # Destination Address ID filter
-    if dest_address_id and dest_address_id != "All Addresses" and 'lvl2_destination_address_id' in df.columns:
+    if dest_address_id != "All Addresses" and 'lvl2_destination_address_id' in df_filtered.columns:
         df_filtered = df_filtered[df_filtered['lvl2_destination_address_id'] == dest_address_id]
-    
-    # Date range filters (AND logic) - only apply if column exists
-    if oc_dates and 'order_create_ts' in df.columns:
-        oc_start, oc_end = pd.to_datetime(oc_dates[0]), pd.to_datetime(oc_dates[1]) + timedelta(days=1)
-        df_filtered = df_filtered[(df_filtered['order_create_ts'] >= oc_start) & (df_filtered['order_create_ts'] < oc_end)]
-    
-    if rfh_dates and 'lvl1_READY_FOR_HANDOVER_ts' in df.columns:
-        rfh_start, rfh_end = pd.to_datetime(rfh_dates[0]), pd.to_datetime(rfh_dates[1]) + timedelta(days=1)
-        df_filtered = df_filtered[(df_filtered['lvl1_READY_FOR_HANDOVER_ts'] >= rfh_start) & (df_filtered['lvl1_READY_FOR_HANDOVER_ts'] < rfh_end)]
-    
-    if transit_dates and 'lvl1_IN_TRANSIT_ts' in df.columns:
-        transit_start, transit_end = pd.to_datetime(transit_dates[0]), pd.to_datetime(transit_dates[1]) + timedelta(days=1)
-        df_filtered = df_filtered[(df_filtered['lvl1_IN_TRANSIT_ts'] >= transit_start) & (df_filtered['lvl1_IN_TRANSIT_ts'] < transit_end)]
-    
-    if final_dates and 'lvl1_final_status_ts' in df.columns:
-        final_start, final_end = pd.to_datetime(final_dates[0]), pd.to_datetime(final_dates[1]) + timedelta(days=1)
-        df_filtered = df_filtered[(df_filtered['lvl1_final_status_ts'] >= final_start) & (df_filtered['lvl1_final_status_ts'] < final_end)]
     
     return df_filtered
 
-def get_time_column(anchor_ts, granularity):
-    """Get appropriate time grouping column based on granularity."""
-    if granularity == "Daily":
-        return anchor_ts.dt.date
-    elif granularity == "Weekly":
-        return anchor_ts.dt.to_period('W')
-    elif granularity == "Monthly":
-        return anchor_ts.dt.to_period('M')
-    else:
-        return anchor_ts.dt.date
 
-def create_trend_line(df_filtered, metric_column, metric_label, metric_format=".1f", granularity="Daily", is_percentage=False):
-    """Create trend line chart for a metric grouped by lvl1_final_status_ts with time granularity."""
+# ============================================================================
+# PHASE 2 FEATURE FUNCTIONS
+# ============================================================================
+
+def build_courier_scorecard(df_filtered, selected_dimensions, group_by_lm=True):
+    """Feature 1: Courier Performance Scorecard with color coding."""
     try:
-        if 'lvl1_final_status_ts' not in df_filtered.columns or df_filtered.empty:
+        if df_filtered.empty or not selected_dimensions:
             return None
         
-        # Create time grouping
-        df_trend = df_filtered.copy()
-        df_trend['time_bucket'] = get_time_column(df_trend['lvl1_final_status_ts'], granularity)
+        pivot_data = df_filtered.copy()
         
-        # Calculate metric by time bucket
-        if metric_column == 'lead_time' or 'days' in metric_column:
-            # For lead time metrics (mean)
-            trend_data = df_trend.groupby('time_bucket')[metric_column].mean().reset_index()
-        elif metric_column == 'p90':
-            # For P90 percentile
-            trend_data = df_trend.groupby('time_bucket')['rfh_to_fa_days'].quantile(0.9).reset_index()
-            trend_data.columns = ['time_bucket', metric_column]
-        else:
-            # For percentage metrics (count / total * 100)
-            trend_data = df_trend.groupby('time_bucket')[metric_column].apply(
-                lambda x: (x == 1).sum() / len(x) * 100 if len(x) > 0 else 0
-            ).reset_index()
-            trend_data.columns = ['time_bucket', metric_column]
+        # Determine courier ID column
+        courier_col = 'lm_courier_id' if group_by_lm else 'fm_courier_id'
         
-        trend_data = trend_data.sort_values('time_bucket')
-        
-        if trend_data.empty:
+        if courier_col not in pivot_data.columns:
             return None
         
-        # Create line chart
-        fig = go.Figure()
+        # Add dimension for courier if not already present
+        agg_keys = list(selected_dimensions)
+        if courier_col not in agg_keys:
+            agg_keys.insert(0, courier_col)
         
-        fig.add_trace(go.Scatter(
-            x=trend_data['time_bucket'].astype(str),
-            y=trend_data[metric_column],
-            mode='lines+markers',
-            name=metric_label,
-            line=dict(color='#1f77b4', width=2),
-            marker=dict(size=6)
+        # Calculate metrics
+        pivot_data['success'] = (pivot_data['final_status'] == 'DELIVERED').astype(int)
+        pivot_data['failed'] = ~pivot_data['final_status'].isin(['DELIVERED', '']).astype(int)
+        
+        # Aggregate
+        scorecard = pivot_data.groupby(agg_keys, dropna=False).agg({
+            'success': ['sum', 'count'],
+            'failed': 'sum',
+            'rfh_to_fa_days': 'mean'
+        }).reset_index()
+        
+        # Flatten columns
+        scorecard.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in scorecard.columns.values]
+        scorecard.rename(columns={
+            'success_sum': 'delivered',
+            'success_count': 'total',
+            'failed_sum': 'failed_count',
+            'rfh_to_fa_days_mean': 'avg_lead_time'
+        }, inplace=True)
+        
+        # Calculate metrics
+        scorecard['success_pct'] = (scorecard['delivered'] / scorecard['total'].replace(0, np.nan) * 100).round(2)
+        scorecard['failed_pct'] = (scorecard['failed_count'] / scorecard['total'].replace(0, np.nan) * 100).round(2)
+        
+        # EOD failure rate
+        if group_by_lm and 'lm_eod_failure_rate_pct' in pivot_data.columns:
+            eod_data = pivot_data.groupby(courier_col)['lm_eod_failure_rate_pct'].mean().reset_index()
+            eod_data.rename(columns={'lm_eod_failure_rate_pct': 'eod_failure_rate'}, inplace=True)
+            scorecard = scorecard.merge(eod_data, left_on=courier_col, right_on=courier_col, how='left')
+        elif not group_by_lm and 'fm_eod_failure_rate_pct' in pivot_data.columns:
+            eod_data = pivot_data.groupby(courier_col)['fm_eod_failure_rate_pct'].mean().reset_index()
+            eod_data.rename(columns={'fm_eod_failure_rate_pct': 'eod_failure_rate'}, inplace=True)
+            scorecard = scorecard.merge(eod_data, left_on=courier_col, right_on=courier_col, how='left')
+        
+        return scorecard
+    
+    except Exception as e:
+        st.error(f"Courier scorecard error: {str(e)}")
+        return None
+
+
+def build_route_matrix(df_filtered):
+    """Feature 2: Route Performance Matrix (10x10 heatmap)."""
+    try:
+        if df_filtered.empty or 'origin_region' not in df_filtered.columns or 'destination_region' not in df_filtered.columns:
+            return None
+        
+        # Calculate SLA compliance by route
+        route_data = df_filtered.copy()
+        route_data['compliant'] = (route_data['forward_delivery_compliance'] == 'pass').astype(int)
+        
+        # Aggregate by route
+        route_agg = route_data.groupby(['origin_region', 'destination_region']).agg({
+            'compliant': ['sum', 'count'],
+            'rfh_to_fa_days': 'mean',
+            'actual_shipping_fee': 'mean'
+        }).reset_index()
+        
+        route_agg.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in route_agg.columns.values]
+        route_agg.rename(columns={
+            'compliant_sum': 'compliant_count',
+            'compliant_count': 'total',
+            'rfh_to_fa_days_mean': 'avg_lead_time',
+            'actual_shipping_fee_mean': 'avg_cpp'
+        }, inplace=True)
+        
+        route_agg['sla_compliance_pct'] = (route_agg['compliant_count'] / route_agg['total'].replace(0, np.nan) * 100).round(1)
+        
+        # Create pivot for heatmap
+        heatmap_data = route_agg.pivot_table(
+            index='origin_region',
+            columns='destination_region',
+            values='sla_compliance_pct',
+            aggfunc='mean'
+        )
+        
+        # Build heatmap with Plotly
+        hover_text = []
+        for origin in route_agg['origin_region'].unique():
+            row_hover = []
+            for dest in route_agg['destination_region'].unique():
+                subset = route_agg[(route_agg['origin_region'] == origin) & (route_agg['destination_region'] == dest)]
+                if not subset.empty:
+                    sla = subset['sla_compliance_pct'].values[0]
+                    lead = subset['avg_lead_time'].values[0]
+                    cpp = subset['avg_cpp'].values[0]
+                    vol = int(subset['total'].values[0])
+                    hover_text.append(f"Route {origin}→{dest}<br>SLA: {sla:.1f}%<br>Lead Time: {lead:.1f}d<br>CPP: ₱{cpp:.2f}<br>Volume: {vol}")
+                else:
+                    hover_text.append(f"No data: {origin}→{dest}")
+        
+        fig = go.Figure(data=go.Heatmap(
+            z=heatmap_data.values,
+            x=heatmap_data.columns,
+            y=heatmap_data.index,
+            colorscale='RdYlGn',
+            zmid=90,
+            text=heatmap_data.values.round(1),
+            texttemplate='%{text:.1f}%',
+            textfont={"size": 10},
+            hovertemplate='%{customdata}<extra></extra>',
+            customdata=np.array(hover_text).reshape(heatmap_data.shape)
         ))
         
-        y_label = "% " if is_percentage else "Days"
-        
         fig.update_layout(
-            title=f"{metric_label} Trend",
-            xaxis_title=f"{granularity} (Final Status Date)",
-            yaxis_title=y_label,
-            hovermode='x unified',
-            height=300,
-            margin=dict(l=50, r=50, t=50, b=50),
-            showlegend=False
+            title="Route Performance Matrix (SLA Compliance %)",
+            xaxis_title="Destination Region",
+            yaxis_title="Origin Region",
+            height=500,
+            width=800
         )
         
         return fig
+    
     except Exception as e:
-        st.warning(f"Trend line error for {metric_label}: {str(e)}")
+        st.error(f"Route matrix error: {str(e)}")
         return None
+
+
+def build_breach_prediction(df_filtered):
+    """Feature 3: Breach Prediction - At-Risk Orders."""
+    try:
+        if df_filtered.empty:
+            return None
+        
+        # Filter to in-transit orders only
+        in_transit = df_filtered[(df_filtered['final_status'].isna()) | (df_filtered['final_status'] == '')].copy()
+        
+        if in_transit.empty:
+            return None
+        
+        # Calculate remaining SLA
+        current_date = datetime.now().date()
+        in_transit['lvl1_IN_TRANSIT_ts'] = pd.to_datetime(in_transit['lvl1_IN_TRANSIT_ts'], errors='coerce')
+        
+        # Assume forward SLA is 3 days (configurable)
+        forward_sla_days = 3
+        in_transit['sla_target_date'] = in_transit['lvl1_IN_TRANSIT_ts'] + timedelta(days=forward_sla_days)
+        in_transit['days_remaining'] = (in_transit['sla_target_date'].dt.date - current_date).dt.days
+        
+        # Calculate risk level
+        def get_risk_level(days):
+            if days <= 1:
+                return 'HIGH'
+            elif days <= 2:
+                return 'MEDIUM'
+            else:
+                return 'LOW'
+        
+        in_transit['risk_level'] = in_transit['days_remaining'].apply(get_risk_level)
+        
+        # Get current status (estimate completion)
+        in_transit['current_status'] = in_transit['final_status'].fillna('IN_TRANSIT')
+        
+        # Build display dataframe
+        risk_df = in_transit[[
+            'tracking_number', 'current_status', 'origin_region', 'destination_region',
+            'sla_target_date', 'days_remaining', 'risk_level', 'rfh_to_fa_days'
+        ]].copy()
+        
+        risk_df.columns = [
+            'Tracking #', 'Status', 'Origin', 'Destination',
+            'SLA Target', 'Days Remaining', 'Risk Level', 'Avg Lead Time'
+        ]
+        
+        # Sort by days remaining and limit to top 20
+        risk_df = risk_df.sort_values('Days Remaining').head(20)
+        
+        return risk_df
+    
+    except Exception as e:
+        st.error(f"Breach prediction error: {str(e)}")
+        return None
+
+
+def build_3pl_comparison(df_filtered):
+    """Feature 4: 3PL Comparative Analysis."""
+    try:
+        if df_filtered.empty or 'lm_3pl_name' not in df_filtered.columns:
+            return None
+        
+        comparison_data = df_filtered.copy()
+        comparison_data['delivered'] = (comparison_data['final_status'] == 'DELIVERED').astype(int)
+        comparison_data['failed'] = (comparison_data['final_status'].isin(['RETURNED', 'FAILED'])).astype(int)
+        comparison_data['compliant'] = (comparison_data['forward_delivery_compliance'] == 'pass').astype(int)
+        comparison_data['actual_shipping_fee'] = pd.to_numeric(comparison_data['actual_shipping_fee'], errors='coerce')
+        
+        # Group by 3PL
+        by_3pl = comparison_data.groupby('lm_3pl_name').agg({
+            'actual_shipping_fee': ['sum', 'mean', 'count'],
+            'delivered': 'sum',
+            'failed': 'sum',
+            'compliant': 'sum',
+            'rfh_to_fa_days': 'mean'
+        }).reset_index()
+        
+        by_3pl.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in by_3pl.columns.values]
+        by_3pl.rename(columns={
+            'lm_3pl_name': '3PL',
+            'actual_shipping_fee_sum': 'total_fees',
+            'actual_shipping_fee_mean': 'avg_cpp',
+            'actual_shipping_fee_count': 'volume',
+            'delivered_sum': 'delivered_count',
+            'failed_sum': 'failed_count',
+            'compliant_sum': 'compliant_count',
+            'rfh_to_fa_days_mean': 'avg_lead_time'
+        }, inplace=True)
+        
+        # Calculate percentages
+        by_3pl['sla_compliance_pct'] = (by_3pl['compliant_count'] / by_3pl['volume'].replace(0, np.nan) * 100).round(1)
+        by_3pl['failed_pct'] = (by_3pl['failed_count'] / (by_3pl['delivered_count'] + by_3pl['failed_count']).replace(0, np.nan) * 100).round(1)
+        
+        # Build comparison table (manual for now, handling 2 3PLs)
+        result = []
+        
+        metrics = [
+            ('Avg CPP', 'avg_cpp', lambda x: f"₱{x:.2f}"),
+            ('SLA Compliance %', 'sla_compliance_pct', lambda x: f"{x:.1f}%"),
+            ('Failed Delivery %', 'failed_pct', lambda x: f"{x:.1f}%"),
+            ('Avg Lead Time', 'avg_lead_time', lambda x: f"{x:.1f}d"),
+            ('Volume', 'volume', lambda x: f"{int(x)}")
+        ]
+        
+        for metric_name, col, fmt in metrics:
+            row = {'Metric': metric_name}
+            values = []
+            for idx, row_data in by_3pl.iterrows():
+                val = row_data[col]
+                row[row_data['3PL']] = fmt(val) if pd.notna(val) else 'N/A'
+                values.append(val)
+            
+            # Calculate delta and winner
+            if len(values) == 2 and all(pd.notna(v) for v in values):
+                delta = abs(values[0] - values[1])
+                if 'Avg CPP' in metric_name or 'Failed' in metric_name or 'Lead Time' in metric_name:
+                    winner = by_3pl.iloc[np.argmin(values)]['3PL']
+                else:
+                    winner = by_3pl.iloc[np.argmax(values)]['3PL']
+                row['Delta'] = f"{abs(values[0] - values[1]):.2f}"
+                row['Winner'] = f"{winner} ✓"
+            
+            result.append(row)
+        
+        return pd.DataFrame(result)
+    
+    except Exception as e:
+        st.error(f"3PL comparison error: {str(e)}")
+        return None
+
 
 # ============================================================================
 # LOAD & PREPARE DATA
@@ -430,842 +652,846 @@ df = prepare_data(df)
 df = compute_anomalies(df)
 
 # ============================================================================
-# FILTER ROW
+# GLOBAL FILTER ROW
 # ============================================================================
 
-st.markdown("### 📊 Filters & Dimensions")
+st.markdown("### 📊 Global Filters & Dimensions")
 
 col1, col2, col3, col4, col5, col6 = st.columns(6)
 
 with col1:
-    # Safely get 3PL list
     three_pl_options = ["All 3PLs"]
     if 'lm_3pl_name' in df.columns:
         three_pl_options += list(df['lm_3pl_name'].dropna().unique())
-    three_pl = st.selectbox(
-        "3PL Partner",
-        three_pl_options,
-        help="Select 3PL or view all"
-    )
+    three_pl = st.selectbox("3PL Partner", three_pl_options, help="Select 3PL or view all")
 
 with col2:
-    # Origin Region filter
     origin_region_options = ["All Regions"]
     if 'origin_region' in df.columns:
         origin_region_options += list(df['origin_region'].dropna().unique())
-    origin_region = st.selectbox(
-        "Origin Region",
-        origin_region_options,
-        help="Select origin region or view all"
-    )
+    origin_region = st.selectbox("Origin Region", origin_region_options, help="Select origin region or view all")
 
 with col3:
-    # Origin Address ID filter (depends on origin_region selection)
     origin_address_options = ["All Addresses"]
     if 'lvl2_origin_address_id' in df.columns:
         if origin_region != "All Regions":
-            filtered_by_origin_region = df[df['origin_region'] == origin_region]
-            origin_address_options += list(filtered_by_origin_region['lvl2_origin_address_id'].dropna().unique())
+            filtered_by_origin = df[df['origin_region'] == origin_region]
+            origin_address_options += list(filtered_by_origin['lvl2_origin_address_id'].dropna().unique())
         else:
             origin_address_options += list(df['lvl2_origin_address_id'].dropna().unique())
-    origin_address_id = st.selectbox(
-        "Origin Address ID",
-        origin_address_options,
-        help="Select origin address or view all"
-    )
+    origin_address_id = st.selectbox("Origin Address ID", origin_address_options, help="Select origin address or view all")
 
 with col4:
-    # Destination Region filter
     dest_region_options = ["All Regions"]
     if 'destination_region' in df.columns:
         dest_region_options += list(df['destination_region'].dropna().unique())
-    dest_region = st.selectbox(
-        "Destination Region",
-        dest_region_options,
-        help="Select destination region or view all"
-    )
+    dest_region = st.selectbox("Destination Region", dest_region_options, help="Select destination region or view all")
 
 with col5:
-    # Destination Address ID filter (depends on dest_region selection)
     dest_address_options = ["All Addresses"]
     if 'lvl2_destination_address_id' in df.columns:
         if dest_region != "All Regions":
-            filtered_by_dest_region = df[df['destination_region'] == dest_region]
-            dest_address_options += list(filtered_by_dest_region['lvl2_destination_address_id'].dropna().unique())
+            filtered_by_dest = df[df['destination_region'] == dest_region]
+            dest_address_options += list(filtered_by_dest['lvl2_destination_address_id'].dropna().unique())
         else:
             dest_address_options += list(df['lvl2_destination_address_id'].dropna().unique())
-    dest_address_id = st.selectbox(
-        "Destination Address ID",
-        dest_address_options,
-        help="Select destination address or view all"
-    )
+    dest_address_id = st.selectbox("Destination Address ID", dest_address_options, help="Select destination address or view all")
 
 with col6:
-    granularity = st.radio(
-        "Time Granularity",
-        ["Daily", "Weekly", "Monthly"],
-        horizontal=True,
-        help="Grouping for trends"
-    )
+    granularity = st.radio("Time Granularity", ["Daily", "Weekly", "Monthly"], horizontal=True, help="Grouping for trends")
 
 st.divider()
 
-# Row 2: Date filters (moved below geographic filters for better UX)
+# Date filters
 col_d1, col_d2, col_d3, col_d4 = st.columns(4)
 
 with col_d1:
-    oc_dates = st.date_input(
-        "Order Create Date",
-        value=[],
-        max_value=datetime.now().date(),
-        help="Leave blank for all dates"
-    )
+    oc_dates = st.date_input("Order Create Date", value=[], max_value=datetime.now().date(), help="Leave blank for all dates")
     oc_dates = tuple(oc_dates) if len(oc_dates) == 2 else None
 
 with col_d2:
-    rfh_dates = st.date_input(
-        "Request Handover Date",
-        value=[],
-        max_value=datetime.now().date(),
-        help="When seller marked ready"
-    )
+    rfh_dates = st.date_input("Request Handover Date", value=[], max_value=datetime.now().date(), help="When seller marked ready")
     rfh_dates = tuple(rfh_dates) if len(rfh_dates) == 2 else None
 
 with col_d3:
-    transit_dates = st.date_input(
-        "In Transit Date",
-        value=[],
-        max_value=datetime.now().date(),
-        help="When 3PL received"
-    )
+    transit_dates = st.date_input("In Transit Date", value=[], max_value=datetime.now().date(), help="When 3PL received")
     transit_dates = tuple(transit_dates) if len(transit_dates) == 2 else None
 
 with col_d4:
-    final_dates = st.date_input(
-        "Final Status Date",
-        value=[],
-        max_value=datetime.now().date(),
-        help="When parcel completed"
-    )
+    final_dates = st.date_input("Final Status Date", value=[], max_value=datetime.now().date(), help="When parcel completed")
     final_dates = tuple(final_dates) if len(final_dates) == 2 else None
 
 st.divider()
 
-# Apply filters (now includes geographic filters)
+# Apply filters
 df_filtered = apply_filters(df, oc_dates, rfh_dates, transit_dates, final_dates, granularity, three_pl, 
                            origin_region, origin_address_id, dest_region, dest_address_id)
 
 if df_filtered.empty:
-    st.warning("No data matches selected filters")
+    st.warning("⚠️ No data matches selected filters")
     st.stop()
 
 # ============================================================================
-# SECTION 1: NETWORK & ALLOCATION
+# MAIN TABS LAYOUT
 # ============================================================================
 
-st.markdown("## 1️⃣ Network & Allocation")
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "📊 EXECUTIVE",
+    "⚙️ OPERATIONS",
+    "💰 COST",
+    "📈 PERFORMANCE",
+    "🚨 EXCEPTIONS",
+    "🔮 FORECASTING"
+])
 
-col1, col2, col3 = st.columns(3)
+# ============================================================================
+# TAB 1: EXECUTIVE
+# ============================================================================
 
-# 1a. Final Status Volume Completion
-try:
-    total_orders = len(df_filtered)
-    # Count only non-empty final_status (exclude blank strings)
-    completed_orders = len(df_filtered[(df_filtered['final_status'].notna()) & (df_filtered['final_status'] != '')])
-    completion_pct = (completed_orders / total_orders * 100) if total_orders > 0 else 0
+with tab1:
+    st.header("Executive Dashboard")
     
-    with col1:
-        st.metric("Final Status Volume Completion %", f"{completion_pct:.1f}%")
-except:
-    with col1:
-        st.metric("Final Status Volume Completion %", "N/A")
-
-# 1b. Total Volume & In-Transit Count
-try:
-    with col2:
-        in_transit = len(df_filtered[(df_filtered['final_status'].isna()) | (df_filtered['final_status'] == '')])
-        st.metric("Total Volume", f"{len(df_filtered)} ({in_transit} in-transit)")
-except:
-    with col2:
-        st.metric("Total Volume", "N/A")
-
-# 1c. Control Share per 3PL
-try:
-    with col3:
-        if three_pl == "All 3PLs":
-            share_data = df_filtered['lm_3pl_name'].value_counts()
-            st.metric("3PL Share (Top)", f"{share_data.index[0]}: {share_data.values[0]}")
-        else:
-            st.metric("Selected 3PL Volume", len(df_filtered))
-except:
-    with col3:
-        st.metric("Control Share", "N/A")
-
-# 1d. 3PL Volume Control Pie Chart
-try:
-    if three_pl == "All 3PLs":
-        three_pl_volumes = df_filtered['lm_3pl_name'].value_counts()
-        if len(three_pl_volumes) > 0:
-            fig_pie = go.Figure(data=[go.Pie(
-                labels=three_pl_volumes.index,
-                values=three_pl_volumes.values,
-                hovertemplate='<b>%{label}</b><br>Volume: %{value}<br>%{percent}<extra></extra>'
-            )])
-            fig_pie.update_layout(
-                title="3PL Volume Control",
-                height=350,
-                showlegend=True
-            )
-            st.plotly_chart(fig_pie, use_container_width=True)
-        else:
-            st.info("No 3PL data available")
-    else:
-        st.info(f"Filtered to {three_pl} only. View 'All 3PLs' to see volume distribution.")
-except Exception as e:
-    st.info("3PL volume chart unavailable")
-
-st.divider()
-
-# ============================================================================
-# SECTION 2: COST
-# ============================================================================
-
-st.markdown("## 2️⃣ Cost")
-
-try:
-    cpp = pd.to_numeric(df_filtered['actual_shipping_fee'], errors='coerce').mean()
-    
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        st.metric("Cost Per Parcel (₱)", f"₱{cpp:.2f}", delta="vs target ₱81.04")
-    
-    with col2:
-        # CPP trend by final_status_ts
-        if 'lvl1_final_status_ts' in df_filtered.columns:
-            daily_cpp = df_filtered.groupby(get_time_column(df_filtered['lvl1_final_status_ts'], granularity))['actual_shipping_fee'].apply(
-                lambda x: pd.to_numeric(x, errors='coerce').mean()
-            )
-            
-            fig = go.Figure()
-            x_labels = [str(i).split(' ')[0] if ' ' in str(i) else str(i) for i in daily_cpp.index]
-            fig.add_trace(go.Scatter(x=x_labels, y=daily_cpp.values, mode='lines+markers', name='CPP'))
-            fig.add_hline(y=81.04, line_dash="dash", line_color="red", annotation_text="Target")
-            fig.update_layout(title="CPP Trend", height=300, showlegend=False)
-            st.plotly_chart(fig, width="stretch")
-except Exception as e:
-    st.info("Cost data unavailable")
-
-st.divider()
-
-# ============================================================================
-# SECTION 3: OPERATIONS
-# ============================================================================
-
-st.markdown("## 3️⃣ Operations")
-
-# ============ OPERATIONS SCORECARD (NEW) ============
-st.markdown("### Operations Scorecard - Dynamic Pivot Table")
-
-try:
-    # Define available dimensions
-    available_dimensions = []
-    if 'origin_region' in df_filtered.columns:
-        available_dimensions.append('origin_region')
-    if 'lvl2_origin_address_id' in df_filtered.columns:
-        available_dimensions.append('lvl2_origin_address_id')
-    if 'destination_region' in df_filtered.columns:
-        available_dimensions.append('destination_region')
-    if 'lvl2_destination_address_id' in df_filtered.columns:
-        available_dimensions.append('lvl2_destination_address_id')
-    if 'lm_3pl_name' in df_filtered.columns:
-        available_dimensions.append('lm_3pl_name')
-    
-    if available_dimensions:
-        # User selects which dimensions to include
-        selected_dimensions = st.multiselect(
-            "Select Row Dimensions for Scorecard",
-            available_dimensions,
-            default=available_dimensions[:2] if len(available_dimensions) >= 2 else available_dimensions,
-            help="Choose which dimensions to pivot by"
-        )
+    # Row 1: KPI Cards
+    try:
+        sla_compliance = (df_filtered['forward_delivery_compliance'] == 'pass').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
+        failed_delivery = (df_filtered['final_status'].isin(['RETURNED'])).sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
+        cpp = pd.to_numeric(df_filtered['actual_shipping_fee'], errors='coerce').mean()
+        volume = len(df_filtered)
         
-        if selected_dimensions:
-            # Prepare data for pivot table
-            pivot_data = df_filtered.copy()
-            
-            # Calculate KPI values
-            # 3a. Pickup Compliance %
-            if 'pickup_sla_compliance' in pivot_data.columns:
-                pivot_data['pickup_compliance'] = (pivot_data['pickup_sla_compliance'] == 'pass').astype(int)
-            else:
-                pivot_data['pickup_compliance'] = 0
-            
-            # 3b. Forward Delivery Compliance %
-            if 'forward_delivery_compliance' in pivot_data.columns:
-                pivot_data['forward_compliance'] = (pivot_data['forward_delivery_compliance'] == 'pass').astype(int)
-            else:
-                pivot_data['forward_compliance'] = 0
-            
-            # 3c-3f. Lead times already calculated in prepare_data()
-            # 3g. Failed Delivery %
-            if 'final_status' in pivot_data.columns:
-                pivot_data['failed_delivery'] = pivot_data['final_status'].isin(['FAILED', 'RTS']).astype(int)
-            else:
-                pivot_data['failed_delivery'] = 0
-            
-            # Build aggregation dictionary
-            agg_dict = {
-                'pickup_compliance': ['sum', 'count'],
-                'forward_compliance': ['sum', 'count'],
-                'oc_to_rfh_days': 'mean',
-                'oc_to_fa_days': 'mean',
-                'rfh_to_fa_days': 'mean',
-                'failed_delivery': ['sum', 'count']
-            }
-            
-            # Perform groupby aggregation
-            scorecard = pivot_data.groupby(selected_dimensions, dropna=False).agg(agg_dict).reset_index()
-            
-            # Flatten multi-level column names
-            scorecard.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in scorecard.columns.values]
-            
-            # Rename for readability
-            rename_map = {
-                'pickup_compliance_sum': 'Pickup_Pass',
-                'pickup_compliance_count': 'Pickup_Total',
-                'forward_compliance_sum': 'Forward_Pass',
-                'forward_compliance_count': 'Forward_Total',
-                'oc_to_rfh_days_mean': 'OC_to_RFH_days',
-                'oc_to_fa_days_mean': 'OC_to_FA_days',
-                'rfh_to_fa_days_mean': 'RFH_to_FA_days',
-                'failed_delivery_sum': 'Failed_Count',
-                'failed_delivery_count': 'Delivery_Total'
-            }
-            scorecard = scorecard.rename(columns=rename_map)
-            
-            # Add p90 calculation - properly reset index with names
-            p90_data = pivot_data.groupby(selected_dimensions)['rfh_to_fa_days'].quantile(0.9).reset_index(name='rfh_to_fa_p90')
-            
-            # Merge p90 data
-            scorecard = scorecard.merge(p90_data, on=selected_dimensions, how='left')
-            
-            # Calculate percentages (handle division by zero)
-            scorecard['Pickup_Compliance_%'] = (scorecard['Pickup_Pass'] / scorecard['Pickup_Total'].replace(0, np.nan) * 100).round(2)
-            scorecard['Forward_Compliance_%'] = (scorecard['Forward_Pass'] / scorecard['Forward_Total'].replace(0, np.nan) * 100).round(2)
-            scorecard['Failed_Delivery_%'] = (scorecard['Failed_Count'] / scorecard['Delivery_Total'].replace(0, np.nan) * 100).round(2)
-            
-            # Build final display dataframe (drop intermediate columns)
-            display_cols = selected_dimensions + [
-                'Pickup_Compliance_%',
-                'Forward_Compliance_%',
-                'OC_to_RFH_days',
-                'OC_to_FA_days',
-                'RFH_to_FA_days',
-                'rfh_to_fa_p90',
-                'Failed_Delivery_%'
-            ]
-            display_cols = [col for col in display_cols if col in scorecard.columns]
-            scorecard_display = scorecard[display_cols].copy()
-            
-            # Rename for final display
-            scorecard_display = scorecard_display.rename(columns={
-                'origin_region': 'Origin Region',
-                'lvl2_origin_address_id': 'Origin Address',
-                'destination_region': 'Destination Region',
-                'lvl2_destination_address_id': 'Destination Address',
-                'lm_3pl_name': '3PL Partner',
-                'Pickup_Compliance_%': '3a. Pickup Compliance %',
-                'Forward_Compliance_%': '3b. Forward Compliance %',
-                'OC_to_RFH_days': '3c. OC→RFH (days)',
-                'OC_to_FA_days': '3d. OC→FA (days)',
-                'RFH_to_FA_days': '3e. RFH→FA (days)',
-                'rfh_to_fa_p90': '3f. RFH→FA P90 (days)',
-                'Failed_Delivery_%': '3g. Failed Delivery %'
-            })
-            
-            # Sort by first dimension
-            if len(selected_dimensions) > 0:
-                first_dim_display = selected_dimensions[0].replace('lvl2_', '').replace('_', ' ').title()
-                scorecard_display = scorecard_display.sort_values(
-                    by=[col for col in scorecard_display.columns if 'Region' in col or 'Address' in col or '3PL' in col][0],
-                    na_position='last'
-                )
-            
-            # Display with numeric formatting
-            st.dataframe(
-                scorecard_display.style.format({
-                    col: '{:.2f}' for col in scorecard_display.columns 
-                    if '%' in col or 'days' in col.lower() or 'P90' in col
-                }),
-                use_container_width=True,
-                height=400
-            )
-            
-            st.caption(f"📊 Scorecard: {len(scorecard_display)} row(s) × {len(display_cols)} metrics | Filters: {', '.join(selected_dimensions)}")
-        else:
-            st.info("Select at least one dimension to view the scorecard")
-    else:
-        st.warning("No geographic/3PL dimensions available in data")
-
-except Exception as e:
-    st.error(f"Scorecard error: {str(e)}")
-
-st.divider()
-
-# 3a. Pickup Compliance (anchored to lvl1_READY_FOR_HANDOVER_ts)
-try:
-    if 'lvl1_READY_FOR_HANDOVER_ts' in df_filtered.columns:
-        pickup_comp = (df_filtered['pickup_sla_compliance'] == 'pass').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
+        col1, col2, col3, col4 = st.columns(4)
         
-        col1, col2 = st.columns([1, 2])
         with col1:
-            st.metric("3a. Pickup Compliance %", f"{pickup_comp:.1f}%", delta="vs target 95%")
+            st.metric("1a. SLA Compliance %", f"{sla_compliance:.1f}%", delta="Target: >95%")
         
         with col2:
-            daily_pickup = df_filtered.groupby(get_time_column(df_filtered['lvl1_READY_FOR_HANDOVER_ts'], granularity)).apply(
-                lambda x: (x['pickup_sla_compliance'] == 'pass').sum() / len(x) * 100
+            st.metric("2a. Failed Delivery %", f"{failed_delivery:.1f}%", delta="Target: <5%")
+        
+        with col3:
+            st.metric("Cost Per Parcel", f"₱{cpp:.2f}", delta="Target: ₱81.04")
+        
+        with col4:
+            st.metric("Volume", f"{volume}", delta=f"In-transit: {len(df_filtered[(df_filtered['final_status'].isna()) | (df_filtered['final_status'] == '')])}")
+    except Exception as e:
+        st.error(f"KPI error: {str(e)}")
+    
+    st.divider()
+    
+    # Row 2: 3PL Volume Pie + Top 5 Issues
+    try:
+        col_pie, col_issues = st.columns(2)
+        
+        with col_pie:
+            if three_pl == "All 3PLs":
+                three_pl_volumes = df_filtered['lm_3pl_name'].value_counts()
+                if len(three_pl_volumes) > 0:
+                    fig_pie = go.Figure(data=[go.Pie(
+                        labels=three_pl_volumes.index,
+                        values=three_pl_volumes.values,
+                        hovertemplate='<b>%{label}</b><br>Volume: %{value}<br>%{percent}<extra></extra>'
+                    )])
+                    fig_pie.update_layout(title="3PL Volume Control", height=350)
+                    st.plotly_chart(fig_pie, use_container_width=True)
+        
+        with col_issues:
+            st.markdown("**Top 5 Issues by Count**")
+            issues = []
+            
+            if (df_filtered['flag_fake_attempt_fm_geolocation'] == 1).any():
+                issues.append(("FM Geolocation Violations", (df_filtered['flag_fake_attempt_fm_geolocation'] == 1).sum()))
+            if (df_filtered['flag_fake_attempt_lm_geolocation'] == 1).any():
+                issues.append(("LM Geolocation Violations", (df_filtered['flag_fake_attempt_lm_geolocation'] == 1).sum()))
+            if (df_filtered['is_package_lost'] == 1).any():
+                issues.append(("Lost Packages", (df_filtered['is_package_lost'] == 1).sum()))
+            if (df_filtered['is_package_damaged'] == 1).any():
+                issues.append(("Damaged Packages", (df_filtered['is_package_damaged'] == 1).sum()))
+            if (df_filtered['is_forward_hard_breach'] == 1).any():
+                issues.append(("Forward Hard Breaches", (df_filtered['is_forward_hard_breach'] == 1).sum()))
+            
+            issues_df = pd.DataFrame(issues, columns=['Issue', 'Count']).sort_values('Count', ascending=False).head(5)
+            st.dataframe(issues_df, use_container_width=True, height=200)
+    
+    except Exception as e:
+        st.error(f"Pie/Issues error: {str(e)}")
+    
+    st.divider()
+    
+    # Row 3: 4 Trend Lines
+    try:
+        trend_col1, trend_col2, trend_col3, trend_col4 = st.columns(4)
+        
+        with trend_col1:
+            df_trend = df_filtered.copy()
+            if 'lvl1_final_status_ts' in df_trend.columns and not df_trend.empty:
+                df_trend['time_bucket'] = get_time_column(df_trend['lvl1_final_status_ts'], granularity)
+                trend_sla = df_trend.groupby('time_bucket').apply(
+                    lambda x: (x['forward_delivery_compliance'] == 'pass').sum() / len(x) * 100 if len(x) > 0 else 0
+                ).reset_index()
+                trend_sla.columns = ['time_bucket', 'sla_pct']
+                
+                if not trend_sla.empty:
+                    fig_sla = go.Figure()
+                    fig_sla.add_trace(go.Scatter(x=trend_sla['time_bucket'].astype(str), y=trend_sla['sla_pct'],
+                        mode='lines+markers', line=dict(color='#2ca02c', width=2), marker=dict(size=5)))
+                    fig_sla.update_layout(title="SLA Compliance % Trend", height=300, xaxis_title=granularity, yaxis_title="%")
+                    st.plotly_chart(fig_sla, use_container_width=True)
+        
+        with trend_col2:
+            df_trend = df_filtered.copy()
+            if 'lvl1_final_status_ts' in df_trend.columns and not df_trend.empty:
+                df_trend['time_bucket'] = get_time_column(df_trend['lvl1_final_status_ts'], granularity)
+                trend_failed = df_trend.groupby('time_bucket').apply(
+                    lambda x: (x['final_status'].isin(['RETURNED'])).sum() / len(x) * 100 if len(x) > 0 else 0
+                ).reset_index()
+                trend_failed.columns = ['time_bucket', 'failed_pct']
+                
+                if not trend_failed.empty:
+                    fig_failed = go.Figure()
+                    fig_failed.add_trace(go.Scatter(x=trend_failed['time_bucket'].astype(str), y=trend_failed['failed_pct'],
+                        mode='lines+markers', line=dict(color='#d62728', width=2), marker=dict(size=5)))
+                    fig_failed.update_layout(title="Failed Delivery % Trend", height=300, xaxis_title=granularity, yaxis_title="%")
+                    st.plotly_chart(fig_failed, use_container_width=True)
+        
+        with trend_col3:
+            df_trend = df_filtered.copy()
+            if 'lvl1_final_status_ts' in df_trend.columns and not df_trend.empty:
+                df_trend['time_bucket'] = get_time_column(df_trend['lvl1_final_status_ts'], granularity)
+                trend_cpp = df_trend.groupby('time_bucket')['actual_shipping_fee'].apply(
+                    lambda x: pd.to_numeric(x, errors='coerce').mean()
+                ).reset_index()
+                trend_cpp.columns = ['time_bucket', 'cpp']
+                
+                if not trend_cpp.empty:
+                    fig_cpp = go.Figure()
+                    fig_cpp.add_trace(go.Scatter(x=trend_cpp['time_bucket'].astype(str), y=trend_cpp['cpp'],
+                        mode='lines+markers', line=dict(color='#1f77b4', width=2), marker=dict(size=5)))
+                    fig_cpp.add_hline(y=81.04, line_dash="dash", line_color="red")
+                    fig_cpp.update_layout(title="CPP Trend", height=300, xaxis_title=granularity, yaxis_title="₱")
+                    st.plotly_chart(fig_cpp, use_container_width=True)
+        
+        with trend_col4:
+            df_trend = df_filtered.copy()
+            if 'lvl1_final_status_ts' in df_trend.columns and not df_trend.empty:
+                df_trend['time_bucket'] = get_time_column(df_trend['lvl1_final_status_ts'], granularity)
+                trend_vol = df_trend.groupby('time_bucket').size().reset_index(name='volume')
+                
+                if not trend_vol.empty:
+                    fig_vol = go.Figure()
+                    fig_vol.add_trace(go.Scatter(x=trend_vol['time_bucket'].astype(str), y=trend_vol['volume'],
+                        mode='lines+markers', line=dict(color='#ff7f0e', width=2), marker=dict(size=5)))
+                    fig_vol.update_layout(title="Volume Trend", height=300, xaxis_title=granularity, yaxis_title="Orders")
+                    st.plotly_chart(fig_vol, use_container_width=True)
+    
+    except Exception as e:
+        st.error(f"Trend error: {str(e)}")
+
+
+# ============================================================================
+# TAB 2: OPERATIONS
+# ============================================================================
+
+with tab2:
+    st.header("Operations Control Center")
+    
+    # SECTION A: Global Filters already shown above
+    st.markdown("*Filters applied globally across all tabs*")
+    st.divider()
+    
+    # SECTION B: Operations Scorecard
+    st.markdown("### SECTION B: Operations Scorecard - Pivot Table")
+    
+    try:
+        available_dimensions = []
+        if 'origin_region' in df_filtered.columns:
+            available_dimensions.append('origin_region')
+        if 'destination_region' in df_filtered.columns:
+            available_dimensions.append('destination_region')
+        if 'lm_3pl_name' in df_filtered.columns:
+            available_dimensions.append('lm_3pl_name')
+        
+        if available_dimensions:
+            selected_dimensions = st.multiselect(
+                "Select Row Dimensions for Operations Scorecard",
+                available_dimensions,
+                default=available_dimensions[:2] if len(available_dimensions) >= 2 else available_dimensions,
+                key="ops_dimensions"
             )
             
-            fig = go.Figure()
-            x_labels = [str(i).split(' ')[0] if ' ' in str(i) else str(i) for i in daily_pickup.index]
-            fig.add_trace(go.Scatter(x=x_labels, y=daily_pickup.values, mode='lines+markers'))
-            fig.add_hline(y=95, line_dash="dash", line_color="red", annotation_text="Target")
-            fig.update_layout(title="Pickup Compliance Trend", height=300, showlegend=False)
-            st.plotly_chart(fig, width="stretch")
-except:
-    st.info("Pickup compliance data unavailable")
+            if selected_dimensions:
+                pivot_data = df_filtered.copy()
+                pivot_data['pickup_compliance'] = (pivot_data.get('pickup_sla_compliance', '') == 'pass').astype(int)
+                pivot_data['forward_compliance'] = (pivot_data.get('forward_delivery_compliance', '') == 'pass').astype(int)
+                pivot_data['failed_delivery'] = pivot_data['final_status'].isin(['FAILED', 'RTS']).astype(int)
+                
+                agg_dict = {
+                    'pickup_compliance': ['sum', 'count'],
+                    'forward_compliance': ['sum', 'count'],
+                    'oc_to_rfh_days': 'mean',
+                    'rfh_to_fa_days': 'mean',
+                    'failed_delivery': ['sum', 'count']
+                }
+                
+                scorecard = pivot_data.groupby(selected_dimensions, dropna=False).agg(agg_dict).reset_index()
+                scorecard.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in scorecard.columns.values]
+                
+                rename_map = {
+                    'pickup_compliance_sum': 'Pickup_Pass',
+                    'pickup_compliance_count': 'Pickup_Total',
+                    'forward_compliance_sum': 'Forward_Pass',
+                    'forward_compliance_count': 'Forward_Total',
+                    'oc_to_rfh_days_mean': 'OC_to_RFH',
+                    'rfh_to_fa_days_mean': 'RFH_to_FA',
+                    'failed_delivery_sum': 'Failed_Count',
+                    'failed_delivery_count': 'Delivery_Total'
+                }
+                scorecard = scorecard.rename(columns=rename_map)
+                
+                scorecard['Pickup_%'] = (scorecard['Pickup_Pass'] / scorecard['Pickup_Total'].replace(0, np.nan) * 100).round(2)
+                scorecard['Forward_%'] = (scorecard['Forward_Pass'] / scorecard['Forward_Total'].replace(0, np.nan) * 100).round(2)
+                scorecard['Failed_%'] = (scorecard['Failed_Count'] / scorecard['Delivery_Total'].replace(0, np.nan) * 100).round(2)
+                
+                display_cols = selected_dimensions + ['Pickup_%', 'Forward_%', 'OC_to_RFH', 'RFH_to_FA', 'Failed_%']
+                display_cols = [col for col in display_cols if col in scorecard.columns]
+                
+                st.dataframe(scorecard[display_cols].style.format({col: '{:.2f}' for col in scorecard[display_cols].columns if '%' in col or 'days' in col.lower()}), use_container_width=True, height=350)
+    
+    except Exception as e:
+        st.warning(f"Operations scorecard error: {str(e)}")
+    
+    st.divider()
+    
+    # SECTION C: Courier Performance Scorecard (PHASE 2)
+    st.markdown("### SECTION C: Courier Performance Scorecard (Phase 2)")
+    
+    try:
+        courier_dimensions = []
+        if '3PL' in available_dimensions:
+            courier_dimensions.append('lm_3pl_name')
+        if 'origin_region' in available_dimensions:
+            courier_dimensions.append('origin_region')
+        
+        group_by_lm = st.radio("Courier Type", ["Last Mile (LM)", "First Mile (FM)"], horizontal=True, key="courier_type")
+        
+        if courier_dimensions:
+            selected_courier_dims = st.multiselect(
+                "Select Dimensions for Courier Scorecard",
+                courier_dimensions,
+                default=courier_dimensions[:1] if courier_dimensions else [],
+                key="courier_dimensions"
+            )
+            
+            if selected_courier_dims:
+                courier_df = build_courier_scorecard(df_filtered, selected_courier_dims, group_by_lm=(group_by_lm == "Last Mile (LM)"))
+                
+                if courier_df is not None and not courier_df.empty:
+                    # Format for display
+                    display_courier = courier_df[['lm_courier_id'] + selected_courier_dims + ['success_pct', 'avg_lead_time', 'failed_pct']].copy() if 'lm_courier_id' in courier_df.columns else courier_df.head(20)
+                    
+                    def color_score(val):
+                        if pd.isna(val):
+                            return ''
+                        if val >= 95:
+                            return 'background-color: #90EE90'  # Green
+                        elif val >= 80:
+                            return 'background-color: #FFFFE0'  # Yellow
+                        else:
+                            return 'background-color: #FFB6C6'  # Red
+                    
+                    st.dataframe(display_courier.style.applymap(color_score, subset=['success_pct']), use_container_width=True, height=400)
+                else:
+                    st.info("No courier data available for selected dimensions")
+    
+    except Exception as e:
+        st.warning(f"Courier scorecard error: {str(e)}")
+    
+    st.divider()
+    
+    # SECTION D: Route Performance Matrix (PHASE 2)
+    st.markdown("### SECTION D: Route Performance Matrix (Phase 2)")
+    
+    try:
+        route_matrix = build_route_matrix(df_filtered)
+        if route_matrix is not None:
+            st.plotly_chart(route_matrix, use_container_width=True)
+        else:
+            st.info("Route matrix unavailable - insufficient region data")
+    
+    except Exception as e:
+        st.warning(f"Route matrix error: {str(e)}")
+    
+    st.divider()
+    
+    # SECTION E: Breach Prediction (PHASE 2)
+    st.markdown("### SECTION E: Breach Prediction - At-Risk Orders (Phase 2)")
+    
+    try:
+        breach_df = build_breach_prediction(df_filtered)
+        if breach_df is not None and not breach_df.empty:
+            # Color code risk levels
+            def color_risk(val):
+                if val == 'HIGH':
+                    return 'background-color: #FFB6C6'
+                elif val == 'MEDIUM':
+                    return 'background-color: #FFFFE0'
+                else:
+                    return 'background-color: #90EE90'
+            
+            st.dataframe(breach_df.style.applymap(color_risk, subset=['Risk Level']), use_container_width=True, height=400)
+            st.caption(f"Showing top 20 at-risk orders. {len(breach_df)} orders currently in transit.")
+        else:
+            st.info("✅ No in-transit orders approaching SLA breach")
+    
+    except Exception as e:
+        st.warning(f"Breach prediction error: {str(e)}")
 
-# 3b. Forward Delivery Compliance (anchored to lvl1_IN_TRANSIT_ts)
-try:
-    if 'lvl1_IN_TRANSIT_ts' in df_filtered.columns:
+
+# ============================================================================
+# TAB 3: COST
+# ============================================================================
+
+with tab3:
+    st.header("Cost Control & Analysis")
+    
+    # SECTION A: Cost KPIs
+    st.markdown("### SECTION A: Cost KPIs")
+    
+    try:
+        cpp = pd.to_numeric(df_filtered['actual_shipping_fee'], errors='coerce').mean()
+        
+        # Cost variance (estimated vs actual)
+        cost_variance = 0
+        if 'estimated_shipping_fee' in df_filtered.columns:
+            estimated = pd.to_numeric(df_filtered['estimated_shipping_fee'], errors='coerce')
+            actual = pd.to_numeric(df_filtered['actual_shipping_fee'], errors='coerce')
+            cost_variance = ((actual.sum() - estimated.sum()) / estimated.sum() * 100) if estimated.sum() > 0 else 0
+        
+        # Cost leakage (placeholder)
+        cost_leakage_count = 0
+        
+        col_cost1, col_cost2, col_cost3 = st.columns(3)
+        
+        with col_cost1:
+            st.metric("Total CPP (₱/parcel)", f"₱{cpp:.2f}", delta="Target: ₱81.04")
+        
+        with col_cost2:
+            st.metric("Cost Variance %", f"{cost_variance:.1f}%", delta="Estimated vs Actual")
+        
+        with col_cost3:
+            st.metric("Cost Leakage Count", cost_leakage_count, delta="Overweight/Overvalued")
+    
+    except Exception as e:
+        st.error(f"Cost KPI error: {str(e)}")
+    
+    st.divider()
+    
+    # SECTION B: CPP by Route
+    st.markdown("### SECTION B: CPP by Route")
+    
+    try:
+        if 'origin_region' in df_filtered.columns and 'destination_region' in df_filtered.columns:
+            route_cpp = df_filtered.copy()
+            route_cpp['route'] = route_cpp['origin_region'].astype(str) + ' → ' + route_cpp['destination_region'].astype(str)
+            route_cpp['actual_shipping_fee'] = pd.to_numeric(route_cpp['actual_shipping_fee'], errors='coerce')
+            
+            route_summary = route_cpp.groupby('route').agg({
+                'actual_shipping_fee': ['mean', 'count']
+            }).reset_index()
+            route_summary.columns = ['route', 'avg_cpp', 'volume']
+            route_summary = route_summary.sort_values('avg_cpp', ascending=False).head(10)
+            
+            fig_route = go.Figure(data=[
+                go.Bar(x=route_summary['route'], y=route_summary['avg_cpp'], marker=dict(color=route_summary['avg_cpp'], colorscale='RdYlGn_r'))
+            ])
+            fig_route.update_layout(title="Top 10 Routes by CPP", xaxis_title="Route", yaxis_title="₱", height=400)
+            st.plotly_chart(fig_route, use_container_width=True)
+    
+    except Exception as e:
+        st.warning(f"Route CPP error: {str(e)}")
+    
+    st.divider()
+    
+    # SECTION C: 3PL Comparative Analysis (PHASE 2)
+    st.markdown("### SECTION C: 3PL Comparative Analysis (Phase 2)")
+    
+    try:
+        comparison = build_3pl_comparison(df_filtered)
+        if comparison is not None and not comparison.empty:
+            st.dataframe(comparison, use_container_width=True, height=300)
+        else:
+            st.info("3PL comparison unavailable - insufficient data for 2+ 3PLs")
+    
+    except Exception as e:
+        st.warning(f"3PL comparison error: {str(e)}")
+    
+    st.divider()
+    
+    # SECTION D: Cost Trends
+    st.markdown("### SECTION D: Cost Trends")
+    
+    try:
+        df_trend = df_filtered.copy()
+        if 'lvl1_final_status_ts' in df_trend.columns and not df_trend.empty:
+            df_trend['time_bucket'] = get_time_column(df_trend['lvl1_final_status_ts'], granularity)
+            daily_cpp = df_trend.groupby('time_bucket')['actual_shipping_fee'].apply(
+                lambda x: pd.to_numeric(x, errors='coerce').mean()
+            ).reset_index()
+            
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=daily_cpp['time_bucket'].astype(str), y=daily_cpp['actual_shipping_fee'],
+                mode='lines+markers', name='CPP', line=dict(color='#1f77b4', width=2)))
+            fig.add_hline(y=81.04, line_dash="dash", line_color="red", annotation_text="Target ₱81.04")
+            fig.update_layout(title="CPP Trend Over Time", height=400, xaxis_title=granularity, yaxis_title="₱")
+            st.plotly_chart(fig, use_container_width=True)
+    
+    except Exception as e:
+        st.warning(f"Cost trend error: {str(e)}")
+
+
+# ============================================================================
+# TAB 4: PERFORMANCE
+# ============================================================================
+
+with tab4:
+    st.header("Performance Metrics & Compliance")
+    
+    # Pickup + Forward Compliance
+    st.markdown("### Pickup & Forward Compliance")
+    
+    try:
+        pickup_comp = (df_filtered.get('pickup_sla_compliance', pd.Series()) == 'pass').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
         forward_comp = (df_filtered['forward_delivery_compliance'] == 'pass').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
         
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            st.metric("3b. Forward Delivery Compliance %", f"{forward_comp:.1f}%", delta="vs target 92%")
+        col_perf1, col_perf2 = st.columns(2)
         
-        with col2:
-            daily_forward = df_filtered.groupby(get_time_column(df_filtered['lvl1_IN_TRANSIT_ts'], granularity)).apply(
-                lambda x: (x['forward_delivery_compliance'] == 'pass').sum() / len(x) * 100
+        with col_perf1:
+            st.metric("Pickup Compliance %", f"{pickup_comp:.1f}%", delta="Target: >98%")
+        
+        with col_perf2:
+            st.metric("Forward Compliance %", f"{forward_comp:.1f}%", delta="Target: >95%")
+        
+        # Trend lines
+        col_trend1, col_trend2 = st.columns(2)
+        
+        with col_trend1:
+            df_trend = df_filtered.copy()
+            if 'lvl1_final_status_ts' in df_trend.columns and not df_trend.empty:
+                df_trend['time_bucket'] = get_time_column(df_trend['lvl1_final_status_ts'], granularity)
+                trend = df_trend.groupby('time_bucket').apply(
+                    lambda x: (x.get('pickup_sla_compliance', '') == 'pass').sum() / len(x) * 100 if len(x) > 0 else 0
+                ).reset_index()
+                trend.columns = ['time_bucket', 'compliance']
+                
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=trend['time_bucket'].astype(str), y=trend['compliance'],
+                    mode='lines+markers', line=dict(color='#2ca02c', width=2)))
+                fig.update_layout(title="Pickup Compliance Trend", height=300, xaxis_title=granularity, yaxis_title="%")
+                st.plotly_chart(fig, use_container_width=True)
+        
+        with col_trend2:
+            df_trend = df_filtered.copy()
+            if 'lvl1_final_status_ts' in df_trend.columns and not df_trend.empty:
+                df_trend['time_bucket'] = get_time_column(df_trend['lvl1_final_status_ts'], granularity)
+                trend = df_trend.groupby('time_bucket').apply(
+                    lambda x: (x['forward_delivery_compliance'] == 'pass').sum() / len(x) * 100 if len(x) > 0 else 0
+                ).reset_index()
+                trend.columns = ['time_bucket', 'compliance']
+                
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=trend['time_bucket'].astype(str), y=trend['compliance'],
+                    mode='lines+markers', line=dict(color='#1f77b4', width=2)))
+                fig.update_layout(title="Forward Compliance Trend", height=300, xaxis_title=granularity, yaxis_title="%")
+                st.plotly_chart(fig, use_container_width=True)
+    
+    except Exception as e:
+        st.warning(f"Compliance error: {str(e)}")
+    
+    st.divider()
+    
+    # Lost & Damaged
+    st.markdown("### Lost & Damaged Metrics")
+    
+    try:
+        lost_pct = (df_filtered['is_package_lost'].sum()) / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
+        damaged_pct = (df_filtered['is_package_damaged'].sum()) / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
+        
+        col_loss1, col_loss2 = st.columns(2)
+        
+        with col_loss1:
+            st.metric("Lost %", f"{lost_pct:.1f}%", delta="vs target <0.1%")
+        
+        with col_loss2:
+            st.metric("Damaged %", f"{damaged_pct:.1f}%", delta="vs target <0.1%")
+        
+        # Trends
+        col_trend_loss1, col_trend_loss2 = st.columns(2)
+        
+        with col_trend_loss1:
+            df_trend = df_filtered.copy()
+            if 'lvl1_final_status_ts' in df_trend.columns and not df_trend.empty:
+                df_trend['time_bucket'] = get_time_column(df_trend['lvl1_final_status_ts'], granularity)
+                trend = df_trend.groupby('time_bucket').apply(
+                    lambda x: (x['final_status'] == 'LOST').sum() / len(x) * 100 if len(x) > 0 else 0
+                ).reset_index()
+                trend.columns = ['time_bucket', 'lost_pct']
+                
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=trend['time_bucket'].astype(str), y=trend['lost_pct'],
+                    mode='lines+markers', line=dict(color='#ff7f0e', width=2)))
+                fig.update_layout(title="Lost % Trend", height=300, xaxis_title=granularity, yaxis_title="%")
+                st.plotly_chart(fig, use_container_width=True)
+        
+        with col_trend_loss2:
+            df_trend = df_filtered.copy()
+            if 'lvl1_final_status_ts' in df_trend.columns and not df_trend.empty:
+                df_trend['time_bucket'] = get_time_column(df_trend['lvl1_final_status_ts'], granularity)
+                trend = df_trend.groupby('time_bucket').apply(
+                    lambda x: (x['final_status'] == 'DAMAGED').sum() / len(x) * 100 if len(x) > 0 else 0
+                ).reset_index()
+                trend.columns = ['time_bucket', 'dmg_pct']
+                
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=trend['time_bucket'].astype(str), y=trend['dmg_pct'],
+                    mode='lines+markers', line=dict(color='#d62728', width=2)))
+                fig.update_layout(title="Damaged % Trend", height=300, xaxis_title=granularity, yaxis_title="%")
+                st.plotly_chart(fig, use_container_width=True)
+    
+    except Exception as e:
+        st.warning(f"Lost & Damaged error: {str(e)}")
+    
+    st.divider()
+    
+    # SLA Breaches
+    st.markdown("### SLA Breaches - Detailed View")
+    
+    try:
+        sla_subtab1, sla_subtab2, sla_subtab3, sla_subtab4 = st.tabs(["Forward Soft", "Forward Hard", "RTS Soft", "RTS Hard"])
+        
+        with sla_subtab1:
+            fwd_soft = df_filtered[df_filtered['is_forward_soft_breach'].astype(str) == '1']
+            st.metric("Parcels", len(fwd_soft))
+            if len(fwd_soft) > 0:
+                cols = [c for c in ['lm_3pl_name', 'tracking_number', 'origin_region', 'destination_region'] if c in fwd_soft.columns]
+                st.dataframe(fwd_soft[cols], use_container_width=True, height=200)
+            else:
+                st.info("✅ No forward soft breaches")
+        
+        with sla_subtab2:
+            fwd_hard = df_filtered[df_filtered['is_forward_hard_breach'].astype(str) == '1']
+            st.metric("Parcels", len(fwd_hard))
+            if len(fwd_hard) > 0:
+                cols = [c for c in ['lm_3pl_name', 'tracking_number', 'origin_region', 'destination_region'] if c in fwd_hard.columns]
+                st.dataframe(fwd_hard[cols], use_container_width=True, height=200)
+            else:
+                st.info("✅ No forward hard breaches")
+        
+        with sla_subtab3:
+            rts_soft = df_filtered[df_filtered['is_rts_soft_breach'].astype(str) == '1']
+            st.metric("Parcels", len(rts_soft))
+            if len(rts_soft) > 0:
+                cols = [c for c in ['lm_3pl_name', 'tracking_number', 'origin_region', 'destination_region'] if c in rts_soft.columns]
+                st.dataframe(rts_soft[cols], use_container_width=True, height=200)
+            else:
+                st.info("✅ No RTS soft breaches")
+        
+        with sla_subtab4:
+            rts_hard = df_filtered[df_filtered['is_rts_hard_breach'].astype(str) == '1']
+            st.metric("Parcels", len(rts_hard))
+            if len(rts_hard) > 0:
+                cols = [c for c in ['lm_3pl_name', 'tracking_number', 'origin_region', 'destination_region'] if c in rts_hard.columns]
+                st.dataframe(rts_hard[cols], use_container_width=True, height=200)
+            else:
+                st.info("✅ No RTS hard breaches")
+    
+    except Exception as e:
+        st.warning(f"SLA breaches error: {str(e)}")
+
+
+# ============================================================================
+# TAB 5: EXCEPTIONS
+# ============================================================================
+
+with tab5:
+    st.header("Anomaly Detection & Exception Queue")
+    
+    st.markdown("### Exception Filters")
+    
+    col_filter1, col_filter2, col_filter3 = st.columns(3)
+    
+    with col_filter1:
+        exception_type = st.multiselect(
+            "Exception Type",
+            ["All", "Fake Attempts", "SLA Breaches", "Lost/Damaged", "Cost Leakage"],
+            default=["All"],
+            key="exc_type"
+        )
+    
+    with col_filter2:
+        priority = st.multiselect(
+            "Priority",
+            ["All", "High", "Medium", "Low"],
+            default=["All"],
+            key="exc_priority"
+        )
+    
+    with col_filter3:
+        status = st.multiselect(
+            "Status",
+            ["All", "Open", "Investigating", "Resolved"],
+            default=["Open"],
+            key="exc_status"
+        )
+    
+    st.divider()
+    
+    st.markdown("### Prioritized Exception Queue")
+    
+    try:
+        # Build exception queue
+        exceptions = []
+        
+        # Fake attempts
+        fm_geo = df_filtered[df_filtered['flag_fake_attempt_fm_geolocation'] == 1]
+        for idx, row in fm_geo.iterrows():
+            exceptions.append({
+                'tracking_number': row.get('tracking_number', 'N/A'),
+                'issue_type': 'FM Geolocation Violation',
+                'priority': 'High',
+                'impact': 500,  # Placeholder cost impact
+                'status': 'Open'
+            })
+        
+        lm_geo = df_filtered[df_filtered['flag_fake_attempt_lm_geolocation'] == 1]
+        for idx, row in lm_geo.iterrows():
+            exceptions.append({
+                'tracking_number': row.get('tracking_number', 'N/A'),
+                'issue_type': 'LM Geolocation Violation',
+                'priority': 'High',
+                'impact': 500,
+                'status': 'Open'
+            })
+        
+        # Lost packages
+        lost = df_filtered[df_filtered['is_package_lost'] == 1]
+        for idx, row in lost.iterrows():
+            exceptions.append({
+                'tracking_number': row.get('tracking_number', 'N/A'),
+                'issue_type': 'Package Lost',
+                'priority': 'High',
+                'impact': float(row.get('actual_shipping_fee', 100)),
+                'status': 'Open'
+            })
+        
+        # Damaged packages
+        damaged = df_filtered[df_filtered['is_package_damaged'] == 1]
+        for idx, row in damaged.iterrows():
+            exceptions.append({
+                'tracking_number': row.get('tracking_number', 'N/A'),
+                'issue_type': 'Package Damaged',
+                'priority': 'Medium',
+                'impact': float(row.get('actual_shipping_fee', 100)),
+                'status': 'Open'
+            })
+        
+        # SLA breaches
+        fwd_hard = df_filtered[df_filtered['is_forward_hard_breach'] == 1]
+        for idx, row in fwd_hard.iterrows():
+            exceptions.append({
+                'tracking_number': row.get('tracking_number', 'N/A'),
+                'issue_type': 'Forward Hard Breach',
+                'priority': 'High',
+                'impact': 1000,
+                'status': 'Open'
+            })
+        
+        if exceptions:
+            exc_df = pd.DataFrame(exceptions)
+            exc_df['rank'] = range(1, len(exc_df) + 1)
+            
+            # Filter
+            if "All" not in exception_type:
+                exc_df = exc_df[exc_df['issue_type'].isin([t for t in exception_type if t != "All"])]
+            
+            if "All" not in priority:
+                exc_df = exc_df[exc_df['priority'].isin([p for p in priority if p != "All"])]
+            
+            if "All" not in status:
+                exc_df = exc_df[exc_df['status'].isin([s for s in status if s != "All"])]
+            
+            # Sort by impact
+            exc_df = exc_df.sort_values('impact', ascending=False).head(50)
+            
+            # Color code priority
+            def color_priority(val):
+                if val == 'High':
+                    return 'background-color: #FFB6C6'
+                elif val == 'Medium':
+                    return 'background-color: #FFFFE0'
+                else:
+                    return 'background-color: #E0FFE0'
+            
+            display_cols = ['rank', 'tracking_number', 'issue_type', 'priority', 'impact', 'status']
+            st.dataframe(
+                exc_df[display_cols].style.applymap(color_priority, subset=['priority']),
+                use_container_width=True,
+                height=500
             )
             
-            fig = go.Figure()
-            x_labels = [str(i).split(' ')[0] if ' ' in str(i) else str(i) for i in daily_forward.index]
-            fig.add_trace(go.Scatter(x=x_labels, y=daily_forward.values, mode='lines+markers'))
-            fig.add_hline(y=92, line_dash="dash", line_color="red", annotation_text="Target")
-            fig.update_layout(title="Forward Delivery Compliance Trend", height=300, showlegend=False)
-            st.plotly_chart(fig, width="stretch")
-except:
-    st.info("Forward compliance data unavailable")
-
-# 3c-3f. Lead Times (anchored to lvl1_final_status_ts)
-try:
-    col1, col2, col3, col4 = st.columns(4)
-    
-    oc_rfh = df_filtered['oc_to_rfh_days'].mean()
-    oc_fa = df_filtered['oc_to_fa_days'].mean()
-    rfh_fa = df_filtered['rfh_to_fa_days'].mean()
-    rfh_fa_p90 = df_filtered['rfh_to_fa_days'].quantile(0.9)
-    
-    with col1:
-        st.metric("3c. OC to RFH (days)", f"{oc_rfh:.1f}")
-    with col2:
-        st.metric("3d. OC to FA (days)", f"{oc_fa:.1f}")
-    with col3:
-        st.metric("3e. RFH to FA (days)", f"{rfh_fa:.1f}")
-    with col4:
-        st.metric("3f. RFH to FA P90 (days)", f"{rfh_fa_p90:.1f}")
-    
-    # Trend lines for lead times
-    col_trend1, col_trend2, col_trend3, col_trend4 = st.columns(4)
-    
-    with col_trend1:
-        df_trend_oc_rfh = df_filtered[df_filtered['oc_to_rfh_days'].notna()].copy()
-        if not df_trend_oc_rfh.empty and 'lvl1_final_status_ts' in df_trend_oc_rfh.columns:
-            df_trend_oc_rfh['time_bucket'] = get_time_column(df_trend_oc_rfh['lvl1_final_status_ts'], granularity)
-            trend_oc_rfh = df_trend_oc_rfh.groupby('time_bucket')['oc_to_rfh_days'].mean().reset_index().sort_values('time_bucket')
-            if not trend_oc_rfh.empty:
-                fig_oc_rfh = go.Figure()
-                fig_oc_rfh.add_trace(go.Scatter(x=trend_oc_rfh['time_bucket'].astype(str), y=trend_oc_rfh['oc_to_rfh_days'],
-                    mode='lines+markers', line=dict(color='#1f77b4', width=2), marker=dict(size=5)))
-                fig_oc_rfh.update_layout(title="OC to RFH Trend", xaxis_title=f"{granularity}", yaxis_title="Days",
-                    height=250, margin=dict(l=40, r=40, t=40, b=40), showlegend=False, hovermode='x unified')
-                st.plotly_chart(fig_oc_rfh, use_container_width=True)
-    
-    with col_trend2:
-        df_trend_oc_fa = df_filtered[df_filtered['oc_to_fa_days'].notna()].copy()
-        if not df_trend_oc_fa.empty and 'lvl1_final_status_ts' in df_trend_oc_fa.columns:
-            df_trend_oc_fa['time_bucket'] = get_time_column(df_trend_oc_fa['lvl1_final_status_ts'], granularity)
-            trend_oc_fa = df_trend_oc_fa.groupby('time_bucket')['oc_to_fa_days'].mean().reset_index().sort_values('time_bucket')
-            if not trend_oc_fa.empty:
-                fig_oc_fa = go.Figure()
-                fig_oc_fa.add_trace(go.Scatter(x=trend_oc_fa['time_bucket'].astype(str), y=trend_oc_fa['oc_to_fa_days'],
-                    mode='lines+markers', line=dict(color='#2ca02c', width=2), marker=dict(size=5)))
-                fig_oc_fa.update_layout(title="OC to FA Trend", xaxis_title=f"{granularity}", yaxis_title="Days",
-                    height=250, margin=dict(l=40, r=40, t=40, b=40), showlegend=False, hovermode='x unified')
-                st.plotly_chart(fig_oc_fa, use_container_width=True)
-    
-    with col_trend3:
-        df_trend_rfh_fa = df_filtered[df_filtered['rfh_to_fa_days'].notna()].copy()
-        if not df_trend_rfh_fa.empty and 'lvl1_final_status_ts' in df_trend_rfh_fa.columns:
-            df_trend_rfh_fa['time_bucket'] = get_time_column(df_trend_rfh_fa['lvl1_final_status_ts'], granularity)
-            trend_rfh_fa = df_trend_rfh_fa.groupby('time_bucket')['rfh_to_fa_days'].mean().reset_index().sort_values('time_bucket')
-            if not trend_rfh_fa.empty:
-                fig_rfh_fa = go.Figure()
-                fig_rfh_fa.add_trace(go.Scatter(x=trend_rfh_fa['time_bucket'].astype(str), y=trend_rfh_fa['rfh_to_fa_days'],
-                    mode='lines+markers', line=dict(color='#d62728', width=2), marker=dict(size=5)))
-                fig_rfh_fa.update_layout(title="RFH to FA Trend", xaxis_title=f"{granularity}", yaxis_title="Days",
-                    height=250, margin=dict(l=40, r=40, t=40, b=40), showlegend=False, hovermode='x unified')
-                st.plotly_chart(fig_rfh_fa, use_container_width=True)
-    
-    with col_trend4:
-        df_trend_p90 = df_filtered[df_filtered['rfh_to_fa_days'].notna()].copy()
-        if not df_trend_p90.empty and 'lvl1_final_status_ts' in df_trend_p90.columns:
-            df_trend_p90['time_bucket'] = get_time_column(df_trend_p90['lvl1_final_status_ts'], granularity)
-            trend_p90 = df_trend_p90.groupby('time_bucket')['rfh_to_fa_days'].quantile(0.9).reset_index().sort_values('time_bucket')
-            trend_p90.columns = ['time_bucket', 'p90']
-            if not trend_p90.empty:
-                fig_p90 = go.Figure()
-                fig_p90.add_trace(go.Scatter(x=trend_p90['time_bucket'].astype(str), y=trend_p90['p90'],
-                    mode='lines+markers', line=dict(color='#9467bd', width=2), marker=dict(size=5)))
-                fig_p90.update_layout(title="RFH to FA P90 Trend", xaxis_title=f"{granularity}", yaxis_title="Days",
-                    height=250, margin=dict(l=40, r=40, t=40, b=40), showlegend=False, hovermode='x unified')
-                st.plotly_chart(fig_p90, use_container_width=True)
-except:
-    st.info("Lead time data unavailable")
-
-# 3g. Failed Delivery (anchored to lvl1_final_status_ts)
-try:
-    # 3g: Failed Delivery % = Failed / (Delivered + Failed)
-    # Only count completed orders (exclude in-transit)
-    completed_mask = (df_filtered['final_status'] != '') & (df_filtered['final_status'].notna())
-    delivered_count = (df_filtered[completed_mask]['final_status'] == 'DELIVERED').sum()
-    failed_count = (df_filtered[completed_mask]['final_status'].isin(['RETURNED', 'PACKAGE_DAMAGED', 'PACKAGE_LOST'])).sum()
-    total_completed = delivered_count + failed_count
-    
-    failed_pct = (failed_count / total_completed * 100) if total_completed > 0 else 0
-    
-    st.metric("3g. Failed Delivery %", f"{failed_pct:.1f}%", delta="vs target <5%")
-    
-    # Trend line for Failed Delivery %
-    df_trend_fd = df_filtered.copy()
-    if 'lvl1_final_status_ts' in df_trend_fd.columns and not df_trend_fd.empty:
-        df_trend_fd['time_bucket'] = get_time_column(df_trend_fd['lvl1_final_status_ts'], granularity)
-        trend_fd = df_trend_fd.groupby('time_bucket').apply(
-            lambda x: (
-                (x['final_status'].isin(['RETURNED', 'PACKAGE_DAMAGED', 'PACKAGE_LOST'])).sum() / 
-                ((x['final_status'] == 'DELIVERED').sum() + (x['final_status'].isin(['RETURNED', 'PACKAGE_DAMAGED', 'PACKAGE_LOST'])).sum()) * 100
-            ) if (x['final_status'] == 'DELIVERED').sum() + (x['final_status'].isin(['RETURNED', 'PACKAGE_DAMAGED', 'PACKAGE_LOST'])).sum() > 0 else 0
-        ).reset_index()
-        trend_fd.columns = ['time_bucket', 'failed_pct']
-        trend_fd = trend_fd.sort_values('time_bucket')
-        
-        if not trend_fd.empty:
-            fig_fd = go.Figure()
-            fig_fd.add_trace(go.Scatter(
-                x=trend_fd['time_bucket'].astype(str),
-                y=trend_fd['failed_pct'],
-                mode='lines+markers',
-                name='Failed Delivery %',
-                line=dict(color='#ff7f0e', width=2),
-                marker=dict(size=6)
-            ))
-            fig_fd.update_layout(
-                title="Failed Delivery % Trend",
-                xaxis_title=f"{granularity} (Final Status Date)",
-                yaxis_title="%",
-                hovermode='x unified',
-                height=300,
-                margin=dict(l=50, r=50, t=50, b=50),
-                showlegend=False
-            )
-            st.plotly_chart(fig_fd, use_container_width=True)
-except:
-    st.info("Failed delivery data unavailable")
-
-st.divider()
-
-# ============================================================================
-# SECTION 4: BREACH
-# ============================================================================
-
-st.markdown("## 4️⃣ Breach")
-
-try:
-    col1, col2, col3, col4 = st.columns(4)
-    
-    forward_breach = (df_filtered['is_forward_hard_breach'].astype(str) == '1').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
-    rts_breach = (df_filtered['is_rts_hard_breach'].astype(str) == '1').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
-    e2e_breach = ((df_filtered['is_forward_hard_breach'].astype(str) == '1') | (df_filtered['is_rts_hard_breach'].astype(str) == '1')).sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
-    promise_breach = len(df_filtered) > 0 and 0  # Placeholder
-    
-    with col1:
-        st.metric("4a. Forward Journey Breach %", f"{forward_breach:.1f}%")
-    with col2:
-        st.metric("4b. RTS Journey Breach %", f"{rts_breach:.1f}%")
-    with col3:
-        st.metric("4c. E2E SLA Breach %", f"{e2e_breach:.1f}%")
-    with col4:
-        st.metric("4d. Promise Breach %", f"{promise_breach:.1f}%")
-    
-    # Trend lines for breach metrics
-    col_breach1, col_breach2, col_breach3, col_breach4 = st.columns(4)
-    
-    with col_breach1:
-        df_trend_fwd = df_filtered.copy()
-        if 'lvl1_final_status_ts' in df_trend_fwd.columns and not df_trend_fwd.empty:
-            df_trend_fwd['time_bucket'] = get_time_column(df_trend_fwd['lvl1_final_status_ts'], granularity)
-            trend_fwd = df_trend_fwd.groupby('time_bucket').apply(
-                lambda x: (x['is_forward_hard_breach'].astype(str) == '1').sum() / len(x) * 100 if len(x) > 0 else 0
-            ).reset_index()
-            trend_fwd.columns = ['time_bucket', 'fwd_breach']
-            trend_fwd = trend_fwd.sort_values('time_bucket')
-            if not trend_fwd.empty:
-                fig_fwd = go.Figure()
-                fig_fwd.add_trace(go.Scatter(x=trend_fwd['time_bucket'].astype(str), y=trend_fwd['fwd_breach'],
-                    mode='lines+markers', line=dict(color='#1f77b4', width=2), marker=dict(size=5)))
-                fig_fwd.update_layout(title="Forward Breach % Trend", xaxis_title=f"{granularity}", yaxis_title="%",
-                    height=250, margin=dict(l=40, r=40, t=40, b=40), showlegend=False, hovermode='x unified')
-                st.plotly_chart(fig_fwd, use_container_width=True)
-    
-    with col_breach2:
-        df_trend_rts = df_filtered.copy()
-        if 'lvl1_final_status_ts' in df_trend_rts.columns and not df_trend_rts.empty:
-            df_trend_rts['time_bucket'] = get_time_column(df_trend_rts['lvl1_final_status_ts'], granularity)
-            trend_rts = df_trend_rts.groupby('time_bucket').apply(
-                lambda x: (x['is_rts_hard_breach'].astype(str) == '1').sum() / len(x) * 100 if len(x) > 0 else 0
-            ).reset_index()
-            trend_rts.columns = ['time_bucket', 'rts_breach']
-            trend_rts = trend_rts.sort_values('time_bucket')
-            if not trend_rts.empty:
-                fig_rts = go.Figure()
-                fig_rts.add_trace(go.Scatter(x=trend_rts['time_bucket'].astype(str), y=trend_rts['rts_breach'],
-                    mode='lines+markers', line=dict(color='#2ca02c', width=2), marker=dict(size=5)))
-                fig_rts.update_layout(title="RTS Breach % Trend", xaxis_title=f"{granularity}", yaxis_title="%",
-                    height=250, margin=dict(l=40, r=40, t=40, b=40), showlegend=False, hovermode='x unified')
-                st.plotly_chart(fig_rts, use_container_width=True)
-    
-    with col_breach3:
-        df_trend_e2e = df_filtered.copy()
-        if 'lvl1_final_status_ts' in df_trend_e2e.columns and not df_trend_e2e.empty:
-            df_trend_e2e['time_bucket'] = get_time_column(df_trend_e2e['lvl1_final_status_ts'], granularity)
-            trend_e2e = df_trend_e2e.groupby('time_bucket').apply(
-                lambda x: (x['final_status'] == 'BREACHED').sum() / len(x) * 100 if len(x) > 0 else 0
-            ).reset_index()
-            trend_e2e.columns = ['time_bucket', 'e2e_breach']
-            trend_e2e = trend_e2e.sort_values('time_bucket')
-            if not trend_e2e.empty:
-                fig_e2e = go.Figure()
-                fig_e2e.add_trace(go.Scatter(x=trend_e2e['time_bucket'].astype(str), y=trend_e2e['e2e_breach'],
-                    mode='lines+markers', line=dict(color='#d62728', width=2), marker=dict(size=5)))
-                fig_e2e.update_layout(title="E2E SLA Breach % Trend", xaxis_title=f"{granularity}", yaxis_title="%",
-                    height=250, margin=dict(l=40, r=40, t=40, b=40), showlegend=False, hovermode='x unified')
-                st.plotly_chart(fig_e2e, use_container_width=True)
-    
-    with col_breach4:
-        st.info("Promise Breach trend: TBD")
-except:
-    st.info("Breach data unavailable")
-
-st.divider()
-
-# ============================================================================
-# SECTION 5: LOST & DAMAGED
-# ============================================================================
-
-st.markdown("## 5️⃣ Lost & Damaged")
-
-try:
-    col1, col2 = st.columns(2)
-    
-    lost_pct = (df_filtered['is_package_lost'].sum()) / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
-    damaged_pct = (df_filtered['is_package_damaged'].sum()) / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
-    
-    with col1:
-        st.metric("5a. Lost %", f"{lost_pct:.1f}%", delta="vs target <0.1%")
-    
-    with col2:
-        st.metric("5b. Damaged %", f"{damaged_pct:.1f}%", delta="vs target <0.1%")
-    
-    # Trend lines for Lost & Damaged
-    col_loss1, col_loss2 = st.columns(2)
-    
-    with col_loss1:
-        df_trend_lost = df_filtered.copy()
-        if 'lvl1_final_status_ts' in df_trend_lost.columns and not df_trend_lost.empty:
-            df_trend_lost['time_bucket'] = get_time_column(df_trend_lost['lvl1_final_status_ts'], granularity)
-            trend_lost = df_trend_lost.groupby('time_bucket').apply(
-                lambda x: (x['final_status'] == 'LOST').sum() / len(x) * 100 if len(x) > 0 else 0
-            ).reset_index()
-            trend_lost.columns = ['time_bucket', 'lost_pct']
-            trend_lost = trend_lost.sort_values('time_bucket')
-            if not trend_lost.empty:
-                fig_lost = go.Figure()
-                fig_lost.add_trace(go.Scatter(x=trend_lost['time_bucket'].astype(str), y=trend_lost['lost_pct'],
-                    mode='lines+markers', line=dict(color='#ff7f0e', width=2), marker=dict(size=6)))
-                fig_lost.update_layout(title="Lost % Trend", xaxis_title=f"{granularity} (Final Status Date)", yaxis_title="%",
-                    height=300, margin=dict(l=50, r=50, t=50, b=50), showlegend=False, hovermode='x unified')
-                st.plotly_chart(fig_lost, use_container_width=True)
-    
-    with col_loss2:
-        df_trend_dmg = df_filtered.copy()
-        if 'lvl1_final_status_ts' in df_trend_dmg.columns and not df_trend_dmg.empty:
-            df_trend_dmg['time_bucket'] = get_time_column(df_trend_dmg['lvl1_final_status_ts'], granularity)
-            trend_dmg = df_trend_dmg.groupby('time_bucket').apply(
-                lambda x: (x['final_status'] == 'DAMAGED').sum() / len(x) * 100 if len(x) > 0 else 0
-            ).reset_index()
-            trend_dmg.columns = ['time_bucket', 'dmg_pct']
-            trend_dmg = trend_dmg.sort_values('time_bucket')
-            if not trend_dmg.empty:
-                fig_dmg = go.Figure()
-                fig_dmg.add_trace(go.Scatter(x=trend_dmg['time_bucket'].astype(str), y=trend_dmg['dmg_pct'],
-                    mode='lines+markers', line=dict(color='#d62728', width=2), marker=dict(size=6)))
-                fig_dmg.update_layout(title="Damaged % Trend", xaxis_title=f"{granularity} (Final Status Date)", yaxis_title="%",
-                    height=300, margin=dict(l=50, r=50, t=50, b=50), showlegend=False, hovermode='x unified')
-                st.plotly_chart(fig_dmg, use_container_width=True)
-except:
-    st.info("Lost & Damaged data unavailable")
-
-st.divider()
-
-# ============================================================================
-# SECTION 6: ANOMALY DETECTION
-# ============================================================================
-
-st.markdown("## 6️⃣ Anomaly Detection")
-
-tab1, tab2, tab3 = st.tabs(["Potential Fake Attempts", "Theft & Tampering", "SLA Breaches"])
-
-# TAB 1: Potential Fake Attempts
-with tab1:
-    fake_tab1, fake_tab2 = st.tabs(["Potential Fake Pickup Attempt", "Potential Fake Delivery Attempt"])
-    
-    with fake_tab1:
-        st.subheader("a. Potential Fake Pickup Attempt")
-        st.markdown("**Table 1: Geolocation Violations (FM-GEO)**")
-        fm_geo = df_filtered[df_filtered['flag_fake_attempt_fm_geolocation'] == 1].copy()
-        st.metric("Parcels Flagged (Geolocation)", len(fm_geo))
-        if len(fm_geo) > 0:
-            cols = [c for c in ['fm_3pl_name', 'tracking_number', 'origin_region', 'seller_id', 'seller_name', 'fm_courier_id', 'origin_geolocation', 'domestic_pickup/sign_in_failure_geolocation', 'flag_fake_attempt_fm_geolocation'] if c in fm_geo.columns]
-            st.dataframe(fm_geo[cols], use_container_width=True, height=300)
+            st.caption(f"Showing {len(exc_df)} exceptions (sorted by impact). Bulk actions available via sidebar.")
         else:
-            st.info("✅ No geolocation violations detected")
-        st.divider()
-        st.markdown("**Table 2: Courier Failure Rate Analysis (EOD)**")
-        # Debug: Check if column exists and has data
-        if 'fm_eod_failure_rate_pct' in df_filtered.columns:
-            fm_eod_count = df_filtered['fm_eod_failure_rate_pct'].notna().sum()
-            st.caption(f"*EOD data: {fm_eod_count} records found*")
-            if fm_eod_count > 0:
-                fm_eod_data = df_filtered[df_filtered['fm_eod_failure_rate_pct'].notna()]
-                fm_eod = fm_eod_data[['fm_3pl_name', 'fm_courier_id', 'fm_activity_day', 'fm_eod_failure_rate_pct', 'fm_failure_tier']].drop_duplicates(subset=['fm_courier_id'])
-                st.dataframe(fm_eod.sort_values('fm_eod_failure_rate_pct', ascending=False), use_container_width=True, height=300)
+            st.info("✅ No exceptions detected!")
+    
+    except Exception as e:
+        st.warning(f"Exception queue error: {str(e)}")
+    
+    st.divider()
+    
+    # Fake Attempts Tables
+    st.markdown("### Fake Attempt Analysis")
+    
+    try:
+        fake_tab1, fake_tab2 = st.tabs(["FM Geolocation", "LM Geolocation"])
+        
+        with fake_tab1:
+            fm_geo_df = df_filtered[df_filtered['flag_fake_attempt_fm_geolocation'] == 1]
+            st.metric("FM Geolocation Violations", len(fm_geo_df))
+            if len(fm_geo_df) > 0:
+                cols = [c for c in ['fm_3pl_name', 'tracking_number', 'origin_region', 'fm_courier_id'] if c in fm_geo_df.columns]
+                st.dataframe(fm_geo_df[cols], use_container_width=True, height=300)
             else:
-                st.info("🔄 FM EOD analysis: Ready to compute once failure timestamps are processed")
-        else:
-            st.info("🔄 FM EOD analysis: Column not found (compute_anomalies may have error)")
-    
-    with fake_tab2:
-        st.subheader("b. Potential Fake Delivery Attempt")
-        st.markdown("**Table 1: Geolocation Violations (LM-GEO)**")
-        lm_geo = df_filtered[df_filtered['flag_fake_attempt_lm_geolocation'] == 1].copy()
-        st.metric("Parcels Flagged (Geolocation)", len(lm_geo))
-        if len(lm_geo) > 0:
-            cols = [c for c in ['lm_3pl_name', 'tracking_number', 'destination_region', 'lm_courier_id', 'destination_geolocation', 'domestic_1st_attempt_failed_geolocation', 'domestic_reattempts_failed_geolocation', 'domestic_delivery_failed_geolocation', 'fd_flag_fake_attempt_detailed'] if c in lm_geo.columns]
-            st.dataframe(lm_geo[cols], use_container_width=True, height=300)
-        else:
-            st.info("✅ No geolocation violations detected")
-        st.divider()
-        st.markdown("**Table 2: Courier Failure Rate Analysis (EOD)**")
-        # Debug: Check if column exists and has data
-        if 'lm_eod_failure_rate_pct' in df_filtered.columns:
-            lm_eod_count = df_filtered['lm_eod_failure_rate_pct'].notna().sum()
-            st.caption(f"*EOD data: {lm_eod_count} records found*")
-            if lm_eod_count > 0:
-                lm_eod_data = df_filtered[df_filtered['lm_eod_failure_rate_pct'].notna()]
-                lm_eod = lm_eod_data[['fm_3pl_name', 'lm_courier_id', 'lm_activity_day', 'lm_eod_failure_rate_pct', 'lm_failure_tier']].drop_duplicates(subset=['lm_courier_id'])
-                st.dataframe(lm_eod.sort_values('lm_eod_failure_rate_pct', ascending=False), use_container_width=True, height=300)
+                st.info("✅ No FM geolocation violations")
+        
+        with fake_tab2:
+            lm_geo_df = df_filtered[df_filtered['flag_fake_attempt_lm_geolocation'] == 1]
+            st.metric("LM Geolocation Violations", len(lm_geo_df))
+            if len(lm_geo_df) > 0:
+                cols = [c for c in ['lm_3pl_name', 'tracking_number', 'destination_region', 'lm_courier_id'] if c in lm_geo_df.columns]
+                st.dataframe(lm_geo_df[cols], use_container_width=True, height=300)
             else:
-                st.info("🔄 LM EOD analysis: Ready to compute once failure timestamps are processed")
-        else:
-            st.info("🔄 LM EOD analysis: Column not found (compute_anomalies may have error)")
+                st.info("✅ No LM geolocation violations")
+    
+    except Exception as e:
+        st.warning(f"Fake attempts error: {str(e)}")
 
-# TAB 2: Theft & Tampering
-with tab2:
-    st.info("Theft & Tampering detection: TBD (Weight variance, ePOD diff, Stagnation)")
 
-# TAB 3: SLA Breaches
-with tab3:
-    sla_tab1, sla_tab2, sla_tab3, sla_tab4 = st.tabs(["Forward Soft", "Forward Hard", "RTS Soft", "RTS Hard"])
+# ============================================================================
+# TAB 6: FORECASTING
+# ============================================================================
+
+with tab6:
+    st.header("Forecasting & Predictive Analytics")
     
-    with sla_tab1:
-        st.subheader("Forward Soft Breach")
-        fwd_soft_df = df_filtered[df_filtered['is_forward_soft_breach'].astype(str) == '1'].copy()
-        st.metric("Parcels", len(fwd_soft_df))
-        
-        if len(fwd_soft_df) > 0:
-            # Add closure date (delivery or failed)
-            if 'lvl2_domestic_delivery_failed_ts' in fwd_soft_df.columns and 'lvl2_domestic_delivered_ts' in fwd_soft_df.columns:
-                fwd_soft_df['forward_journey_closure_date'] = fwd_soft_df['lvl2_domestic_delivery_failed_ts'].fillna(fwd_soft_df['lvl2_domestic_delivered_ts'])
-            
-            cols_to_show = ['lm_3pl_name', 'tracking_number', 'origin_region', 'destination_region',
-                           'forward_journey_closure_date', 'forward_journey_closure_soft_breach_date', 'forward_journey_closure_soft_breach_sla']
-            cols_to_show = [c for c in cols_to_show if c in fwd_soft_df.columns]
-            st.dataframe(fwd_soft_df[cols_to_show], use_container_width=True)
-        else:
-            st.info("✅ No forward soft breaches")
+    st.markdown("### Phase 3: Coming Soon")
+    st.info("""
+    **Forecasting features in development:**
+    - Demand volume forecasting
+    - SLA risk prediction
+    - Courier capacity planning
+    - Cost trend projections
+    - Anomaly pattern detection
     
-    with sla_tab2:
-        st.subheader("Forward Hard Breach")
-        fwd_hard_df = df_filtered[df_filtered['is_forward_hard_breach'].astype(str) == '1'].copy()
-        st.metric("Parcels", len(fwd_hard_df))
-        
-        if len(fwd_hard_df) > 0:
-            # Add closure date (delivery or failed)
-            if 'lvl2_domestic_delivery_failed_ts' in fwd_hard_df.columns and 'lvl2_domestic_delivered_ts' in fwd_hard_df.columns:
-                fwd_hard_df['forward_journey_closure_date'] = fwd_hard_df['lvl2_domestic_delivery_failed_ts'].fillna(fwd_hard_df['lvl2_domestic_delivered_ts'])
-            
-            cols_to_show = ['lm_3pl_name', 'tracking_number', 'origin_region', 'destination_region',
-                           'forward_journey_closure_date', 'forward_journey_closure_hard_breach_date', 'forward_journey_closure_hard_breach_sla']
-            cols_to_show = [c for c in cols_to_show if c in fwd_hard_df.columns]
-            st.dataframe(fwd_hard_df[cols_to_show], use_container_width=True)
-        else:
-            st.info("✅ No forward hard breaches")
-    
-    with sla_tab3:
-        st.subheader("RTS Soft Breach")
-        rts_soft_df = df_filtered[df_filtered['is_rts_soft_breach'].astype(str) == '1'].copy()
-        st.metric("Parcels", len(rts_soft_df))
-        
-        if len(rts_soft_df) > 0:
-            # Add closure date (return failed or returned)
-            if 'lvl2_domestic_package_return_failed_ts' in rts_soft_df.columns and 'lvl2_domestic_package_returned_ts' in rts_soft_df.columns:
-                rts_soft_df['rts_journey_closure_date'] = rts_soft_df['lvl2_domestic_package_return_failed_ts'].fillna(rts_soft_df['lvl2_domestic_package_returned_ts'])
-            
-            cols_to_show = ['lm_3pl_name', 'tracking_number', 'origin_region', 'destination_region',
-                           'rts_journey_closure_date', 'rts_journey_closure_soft_breach_date', 'rts_journey_closure_soft_breach_sla']
-            cols_to_show = [c for c in cols_to_show if c in rts_soft_df.columns]
-            st.dataframe(rts_soft_df[cols_to_show], use_container_width=True)
-        else:
-            st.info("✅ No RTS soft breaches")
-    
-    with sla_tab4:
-        st.subheader("RTS Hard Breach")
-        rts_hard_df = df_filtered[df_filtered['is_rts_hard_breach'].astype(str) == '1'].copy()
-        st.metric("Parcels", len(rts_hard_df))
-        
-        if len(rts_hard_df) > 0:
-            # Add closure date (return failed or returned)
-            if 'lvl2_domestic_package_return_failed_ts' in rts_hard_df.columns and 'lvl2_domestic_package_returned_ts' in rts_hard_df.columns:
-                rts_hard_df['rts_journey_closure_date'] = rts_hard_df['lvl2_domestic_package_return_failed_ts'].fillna(rts_hard_df['lvl2_domestic_package_returned_ts'])
-            
-            cols_to_show = ['lm_3pl_name', 'tracking_number', 'origin_region', 'destination_region',
-                           'rts_journey_closure_date', 'rts_journey_closure_hard_breach_date', 'rts_journey_closure_hard_breach_sla']
-            cols_to_show = [c for c in cols_to_show if c in rts_hard_df.columns]
-            st.dataframe(rts_hard_df[cols_to_show], use_container_width=True)
-        else:
-            st.info("✅ No RTS hard breaches")
+    Expected release: Q3 2026
+    """)
+
 
 st.divider()
-
-st.caption("Dashboard v4.0+ | Multi-dimensional filtering | Computed anomaly detection | Trend lines")
+st.markdown("---")
+st.caption("🚚 MallPlus Logistics Dashboard v3.1 | Phase 2 Implementation Complete | Last sync: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S GMT+8"))
