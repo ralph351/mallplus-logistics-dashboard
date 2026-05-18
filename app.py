@@ -1200,12 +1200,16 @@ with tab3:
     
     with sla_tab1:
         st.subheader("Forward Soft Breach")
-        fwd_soft_df = df_filtered[df_filtered['is_forward_soft_breach'].astype(str) == '1']
+        fwd_soft_df = df_filtered[df_filtered['is_forward_soft_breach'].astype(str) == '1'].copy()
         st.metric("Parcels", len(fwd_soft_df))
         
         if len(fwd_soft_df) > 0:
+            # Add closure date (delivery or failed)
+            if 'lvl2_domestic_delivery_failed_ts' in fwd_soft_df.columns and 'lvl2_domestic_delivered_ts' in fwd_soft_df.columns:
+                fwd_soft_df['forward_journey_closure_date'] = fwd_soft_df['lvl2_domestic_delivery_failed_ts'].fillna(fwd_soft_df['lvl2_domestic_delivered_ts'])
+            
             cols_to_show = ['lm_3pl_name', 'tracking_number', 'origin_region', 'destination_region',
-                           'forward_journey_closure_soft_breach_sla']
+                           'forward_journey_closure_date', 'forward_journey_closure_soft_breach_date', 'forward_journey_closure_soft_breach_sla']
             cols_to_show = [c for c in cols_to_show if c in fwd_soft_df.columns]
             st.dataframe(fwd_soft_df[cols_to_show], use_container_width=True)
         else:
@@ -1213,12 +1217,16 @@ with tab3:
     
     with sla_tab2:
         st.subheader("Forward Hard Breach")
-        fwd_hard_df = df_filtered[df_filtered['is_forward_hard_breach'].astype(str) == '1']
+        fwd_hard_df = df_filtered[df_filtered['is_forward_hard_breach'].astype(str) == '1'].copy()
         st.metric("Parcels", len(fwd_hard_df))
         
         if len(fwd_hard_df) > 0:
+            # Add closure date (delivery or failed)
+            if 'lvl2_domestic_delivery_failed_ts' in fwd_hard_df.columns and 'lvl2_domestic_delivered_ts' in fwd_hard_df.columns:
+                fwd_hard_df['forward_journey_closure_date'] = fwd_hard_df['lvl2_domestic_delivery_failed_ts'].fillna(fwd_hard_df['lvl2_domestic_delivered_ts'])
+            
             cols_to_show = ['lm_3pl_name', 'tracking_number', 'origin_region', 'destination_region',
-                           'forward_journey_closure_hard_breach_sla']
+                           'forward_journey_closure_date', 'forward_journey_closure_hard_breach_date', 'forward_journey_closure_hard_breach_sla']
             cols_to_show = [c for c in cols_to_show if c in fwd_hard_df.columns]
             st.dataframe(fwd_hard_df[cols_to_show], use_container_width=True)
         else:
@@ -1226,12 +1234,16 @@ with tab3:
     
     with sla_tab3:
         st.subheader("RTS Soft Breach")
-        rts_soft_df = df_filtered[df_filtered['is_rts_soft_breach'].astype(str) == '1']
+        rts_soft_df = df_filtered[df_filtered['is_rts_soft_breach'].astype(str) == '1'].copy()
         st.metric("Parcels", len(rts_soft_df))
         
         if len(rts_soft_df) > 0:
+            # Add closure date (return failed or returned)
+            if 'lvl2_domestic_package_return_failed_ts' in rts_soft_df.columns and 'lvl2_domestic_package_returned_ts' in rts_soft_df.columns:
+                rts_soft_df['rts_journey_closure_date'] = rts_soft_df['lvl2_domestic_package_return_failed_ts'].fillna(rts_soft_df['lvl2_domestic_package_returned_ts'])
+            
             cols_to_show = ['lm_3pl_name', 'tracking_number', 'origin_region', 'destination_region',
-                           'rts_journey_closure_soft_breach_sla']
+                           'rts_journey_closure_date', 'rts_journey_closure_soft_breach_date', 'rts_journey_closure_soft_breach_sla']
             cols_to_show = [c for c in cols_to_show if c in rts_soft_df.columns]
             st.dataframe(rts_soft_df[cols_to_show], use_container_width=True)
         else:
@@ -1239,12 +1251,16 @@ with tab3:
     
     with sla_tab4:
         st.subheader("RTS Hard Breach")
-        rts_hard_df = df_filtered[df_filtered['is_rts_hard_breach'].astype(str) == '1']
+        rts_hard_df = df_filtered[df_filtered['is_rts_hard_breach'].astype(str) == '1'].copy()
         st.metric("Parcels", len(rts_hard_df))
         
         if len(rts_hard_df) > 0:
+            # Add closure date (return failed or returned)
+            if 'lvl2_domestic_package_return_failed_ts' in rts_hard_df.columns and 'lvl2_domestic_package_returned_ts' in rts_hard_df.columns:
+                rts_hard_df['rts_journey_closure_date'] = rts_hard_df['lvl2_domestic_package_return_failed_ts'].fillna(rts_hard_df['lvl2_domestic_package_returned_ts'])
+            
             cols_to_show = ['lm_3pl_name', 'tracking_number', 'origin_region', 'destination_region',
-                           'rts_journey_closure_hard_breach_sla']
+                           'rts_journey_closure_date', 'rts_journey_closure_hard_breach_date', 'rts_journey_closure_hard_breach_sla']
             cols_to_show = [c for c in cols_to_show if c in rts_hard_df.columns]
             st.dataframe(rts_hard_df[cols_to_show], use_container_width=True)
         else:
