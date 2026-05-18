@@ -406,7 +406,13 @@ def build_courier_scorecard(df, dimension_cols):
             eod_rate = pd.to_numeric(group['lm_eod_failure_rate_pct'], errors='coerce').mean()
             eod_rate = eod_rate if pd.notna(eod_rate) else 0
             
-            row = {**dict(zip(dimension_cols, dims[0]))}
+            # Handle both scalar and tuple dimension values
+            if isinstance(dims[0], tuple):
+                dim_val = dims[0]
+            else:
+                dim_val = (dims[0],)  # Convert scalar to tuple
+            
+            row = {**dict(zip(dimension_cols, dim_val))}
             row['Success %'] = round(success_pct, 1)
             row['Failed %'] = round(failed_pct, 1)
             row['Avg Lead Time (days)'] = round(avg_lead_time, 1)
@@ -432,22 +438,16 @@ def build_route_matrix(df_filtered):
         route_data = df_filtered.copy()
         route_data['compliant'] = (route_data['forward_delivery_compliance'] == 'pass').astype(int)
         
-        # Aggregate by route
-        route_agg = route_data.groupby(['origin_region', 'destination_region']).agg({
-            'compliant': ['sum', 'count'],
-            'rfh_to_fa_days': 'mean',
-            'actual_shipping_fee': 'mean'
+        # Aggregate by route - use simple aggregations
+        route_agg = route_data.groupby(['origin_region', 'destination_region'], dropna=False).agg({
+            'compliant': ['sum', 'count']
         }).reset_index()
         
-        route_agg.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in route_agg.columns.values]
-        route_agg.rename(columns={
-            'compliant_sum': 'compliant_count',
-            'compliant_count': 'total',
-            'rfh_to_fa_days_mean': 'avg_lead_time',
-            'actual_shipping_fee_mean': 'avg_cpp'
-        }, inplace=True)
+        # Flatten multi-level columns properly
+        route_agg.columns = ['origin_region', 'destination_region', 'compliant_count', 'total']
         
-        route_agg['sla_compliance_pct'] = (route_agg['compliant_count'] / route_agg['total'].replace(0, np.nan) * 100).round(1)
+        # Calculate SLA compliance %
+        route_agg['sla_compliance_pct'] = (route_agg['compliant_count'] / route_agg['total'].replace(0, 1) * 100).round(1)
         
         # Create pivot for heatmap
         heatmap_data = route_agg.pivot_table(
@@ -513,13 +513,19 @@ def build_breach_prediction(df_filtered):
             return None
         
         # Calculate remaining SLA
-        current_date = datetime.now().date()
+        current_date = pd.Timestamp.now().date()
         in_transit['lvl1_IN_TRANSIT_ts'] = pd.to_datetime(in_transit['lvl1_IN_TRANSIT_ts'], errors='coerce')
+        
+        # Filter out rows where conversion failed
+        in_transit = in_transit[in_transit['lvl1_IN_TRANSIT_ts'].notna()]
+        
+        if in_transit.empty:
+            return None
         
         # Assume forward SLA is 3 days (configurable)
         forward_sla_days = 3
-        in_transit['sla_target_date'] = in_transit['lvl1_IN_TRANSIT_ts'] + timedelta(days=forward_sla_days)
-        in_transit['days_remaining'] = (in_transit['sla_target_date'].dt.date - current_date).dt.days
+        in_transit['sla_target_date'] = in_transit['lvl1_IN_TRANSIT_ts'] + pd.to_timedelta(forward_sla_days, unit='D')
+        in_transit['days_remaining'] = (in_transit['sla_target_date'] - pd.Timestamp.now()).dt.days
         
         # Calculate risk level
         def get_risk_level(days):
