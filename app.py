@@ -956,91 +956,39 @@ with tab2:
     
     st.divider()
     
-    # SECTION C: Courier Performance Scorecard (PHASE 2)
+    # SECTION C: Courier Performance Scorecard (PHASE 2A)
     st.markdown("### SECTION C: Courier Performance Scorecard (Phase 2)")
     
     try:
-        courier_dimensions = []
-        if '3PL' in available_dimensions:
-            courier_dimensions.append('lm_3pl_name')
-        if 'origin_region' in available_dimensions:
-            courier_dimensions.append('origin_region')
+        # Simple dropdown
+        dim_choice = st.selectbox("View by:", ["3PL Partner", "Origin Region"], key="c_dim")
+        dim_col = "lm_3pl_name" if dim_choice == "3PL Partner" else "origin_region"
         
-        group_by_lm = st.radio("Courier Type", ["Last Mile (LM)", "First Mile (FM)"], horizontal=True, key="courier_type")
+        # Build scorecard
+        courier_df = build_courier_scorecard(df_filtered, [dim_col])
         
-        if courier_dimensions:
-            selected_courier_dims = st.multiselect(
-                "Select Dimensions for Courier Scorecard",
-                courier_dimensions,
-                default=courier_dimensions[:1] if courier_dimensions else [],
-                key="courier_dimensions"
-            )
-            
-            if selected_courier_dims:
-                courier_df = build_courier_scorecard(df_filtered, selected_courier_dims)
-                
-                if courier_df is not None and not courier_df.empty:
-                    # Format for display
-                    display_courier = courier_df[['lm_courier_id'] + selected_courier_dims + ['success_pct', 'avg_lead_time', 'failed_pct']].copy() if 'lm_courier_id' in courier_df.columns else courier_df.head(20)
-                    
-                    def color_score(val):
-                        if pd.isna(val):
-                            return ''
-                        if val >= 95:
-                            return 'background-color: #90EE90'  # Green
-                        elif val >= 80:
-                            return 'background-color: #FFFFE0'  # Yellow
-                        else:
-                            return 'background-color: #FFB6C6'  # Red
-                    
-                    styled_courier = display_courier.style.map(color_score, subset=['success_pct'])
-                    st.dataframe(styled_courier, use_container_width=True, height=400)
-                else:
-                    st.info("No courier data available for selected dimensions")
+        if courier_df is not None and not courier_df.empty:
+            # Sort and display
+            courier_df = courier_df.sort_values("Success %", ascending=False)
+            st.dataframe(courier_df, use_container_width=True, height=400)
+            st.caption(f"📊 {len(courier_df)} {dim_choice} groups | Sorted by Success %")
+        else:
+            st.info("✅ No courier data available")
     
     except Exception as e:
-        st.warning(f"Courier scorecard error: {str(e)}")
+        st.error(f"Courier scorecard error: {str(e)}")
     
     st.divider()
     
-    # SECTION D: Route Performance Matrix (PHASE 2)
-    st.markdown("### SECTION D: Route Performance Matrix (Phase 2)")
-    
-    try:
-        route_matrix = build_route_matrix(df_filtered)
-        if route_matrix is not None:
-            st.plotly_chart(route_matrix, use_container_width=True)
-        else:
-            st.info("Route matrix unavailable - insufficient region data")
-    
-    except Exception as e:
-        st.warning(f"Route matrix error: {str(e)}")
+    # SECTION D: Route Performance Matrix (PHASE 2B - Coming Soon)
+    st.markdown("### SECTION D: Route Performance Matrix (Phase 2B)")
+    st.info("🔄 Coming in Phase 2B...")
     
     st.divider()
     
-    # SECTION E: Breach Prediction (PHASE 2)
-    st.markdown("### SECTION E: Breach Prediction - At-Risk Orders (Phase 2)")
-    
-    try:
-        breach_df = build_breach_prediction(df_filtered)
-        if breach_df is not None and not breach_df.empty:
-            # Color code risk levels
-            def color_risk(val):
-                if val == 'HIGH':
-                    return 'background-color: #FFB6C6'
-                elif val == 'MEDIUM':
-                    return 'background-color: #FFFFE0'
-                else:
-                    return 'background-color: #90EE90'
-            
-            styled_breach = breach_df.style.map(color_risk, subset=['Risk Level'])
-            st.dataframe(styled_breach, use_container_width=True, height=400)
-            st.caption(f"Showing top 20 at-risk orders. {len(breach_df)} orders currently in transit.")
-        else:
-            st.info("✅ No in-transit orders approaching SLA breach")
-    
-    except Exception as e:
-        st.warning(f"Breach prediction error: {str(e)}")
+    # SECTION E: Breach Prediction (PHASE 2C - Coming Soon)
+    st.markdown("### SECTION E: Breach Prediction - At-Risk Orders (Phase 2C)")
+    st.info("🔄 Coming in Phase 2C...")
 
 
 # ============================================================================
