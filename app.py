@@ -30,8 +30,8 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st.title("🚚 MallPlus Logistics Dashboard v3.1")
-st.markdown("**Multi-Tab Analytics | Phase 2 Implementation** | Last Updated: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S GMT+8") + " | Ready ✅")
+st.title("🚚 MallPlus Logistics Dashboard v4.0")
+st.markdown("**Multi-Tab Analytics | Phase 2C LIVE** | Last Updated: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S GMT+8") + " | Ready ✅")
 
 # ============================================================================
 # DATA LOADING
