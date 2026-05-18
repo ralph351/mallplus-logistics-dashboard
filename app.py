@@ -971,7 +971,7 @@ with tab2:
             )
             
             if selected_courier_dims:
-                courier_df = build_courier_scorecard(df_filtered, selected_courier_dims, group_by_lm=(group_by_lm == "Last Mile (LM)"))
+                courier_df = build_courier_scorecard(df_filtered, selected_courier_dims)
                 
                 if courier_df is not None and not courier_df.empty:
                     # Format for display
