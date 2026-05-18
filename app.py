@@ -1200,7 +1200,7 @@ with tab3:
     
     with sla_tab1:
         st.subheader("Forward Soft Breach")
-        fwd_soft_df = df_filtered[df_filtered['is_forward_soft_breach'] == 1]
+        fwd_soft_df = df_filtered[df_filtered['is_forward_soft_breach'].astype(str) == '1']
         st.metric("Parcels", len(fwd_soft_df))
         
         if len(fwd_soft_df) > 0:
@@ -1213,7 +1213,7 @@ with tab3:
     
     with sla_tab2:
         st.subheader("Forward Hard Breach")
-        fwd_hard_df = df_filtered[df_filtered['is_forward_hard_breach'] == 1]
+        fwd_hard_df = df_filtered[df_filtered['is_forward_hard_breach'].astype(str) == '1']
         st.metric("Parcels", len(fwd_hard_df))
         
         if len(fwd_hard_df) > 0:
@@ -1226,7 +1226,7 @@ with tab3:
     
     with sla_tab3:
         st.subheader("RTS Soft Breach")
-        rts_soft_df = df_filtered[df_filtered['is_rts_soft_breach'] == 1]
+        rts_soft_df = df_filtered[df_filtered['is_rts_soft_breach'].astype(str) == '1']
         st.metric("Parcels", len(rts_soft_df))
         
         if len(rts_soft_df) > 0:
@@ -1239,7 +1239,7 @@ with tab3:
     
     with sla_tab4:
         st.subheader("RTS Hard Breach")
-        rts_hard_df = df_filtered[df_filtered['is_rts_hard_breach'] == 1]
+        rts_hard_df = df_filtered[df_filtered['is_rts_hard_breach'].astype(str) == '1']
         st.metric("Parcels", len(rts_hard_df))
         
         if len(rts_hard_df) > 0:
