@@ -1404,23 +1404,179 @@ with tab5:
 
 
 # ============================================================================
-# TAB 6: FORECASTING
+# TAB 6: BREACH PREDICTION (PHASE 2C)
 # ============================================================================
 
 with tab6:
-    st.header("Forecasting & Predictive Analytics")
+    st.header("🔮 Real-Time SLA Breach Prediction (Phase 2C)")
     
-    st.markdown("### Phase 3: Coming Soon")
-    st.info("""
-    **Forecasting features in development:**
-    - Demand volume forecasting
-    - SLA risk prediction
-    - Courier capacity planning
-    - Cost trend projections
-    - Anomaly pattern detection
+    # Import Phase 2C functions
+    try:
+        from phase2c_functions import analyze_order
+    except ImportError:
+        st.error("Phase 2C functions not found. Please ensure phase2c_functions.py is in the app directory.")
+        analyze_order = None
     
-    Expected release: Q3 2026
-    """)
+    if analyze_order is None:
+        st.warning("Phase 2C not yet integrated. Please deploy Phase 2C.2 first.")
+    else:
+        # SLA Reference Data (from Google Sheets)
+        sla_ref = {
+            ('GMA', 'GMA'): {'forward_delivery_sla': 2, 'forward_journey_closure_soft_breach_sla': 7, 'forward_journey_closure_hard_breach_sla': 10},
+            ('GMA', 'Luzon 1'): {'forward_delivery_sla': 2, 'forward_journey_closure_soft_breach_sla': 7, 'forward_journey_closure_hard_breach_sla': 10},
+            ('GMA', 'Luzon 2'): {'forward_delivery_sla': 3, 'forward_journey_closure_soft_breach_sla': 7, 'forward_journey_closure_hard_breach_sla': 11},
+            ('GMA', 'Luzon 3'): {'forward_delivery_sla': 4, 'forward_journey_closure_soft_breach_sla': 7, 'forward_journey_closure_hard_breach_sla': 12},
+            ('GMA', 'Luzon 4'): {'forward_delivery_sla': 18, 'forward_journey_closure_soft_breach_sla': 25, 'forward_journey_closure_hard_breach_sla': 26},
+            ('GMA', 'Visayas 1'): {'forward_delivery_sla': 6, 'forward_journey_closure_soft_breach_sla': 13, 'forward_journey_closure_hard_breach_sla': 14},
+            ('GMA', 'Visayas 2'): {'forward_delivery_sla': 6, 'forward_journey_closure_soft_breach_sla': 13, 'forward_journey_closure_hard_breach_sla': 14},
+            ('GMA', 'Visayas 3'): {'forward_delivery_sla': 6, 'forward_journey_closure_soft_breach_sla': 13, 'forward_journey_closure_hard_breach_sla': 14},
+            ('GMA', 'Mindanao 1'): {'forward_delivery_sla': 8, 'forward_journey_closure_soft_breach_sla': 15, 'forward_journey_closure_hard_breach_sla': 16},
+            ('GMA', 'Mindanao 2'): {'forward_delivery_sla': 8, 'forward_journey_closure_soft_breach_sla': 15, 'forward_journey_closure_hard_breach_sla': 16},
+        }
+        
+        # Micro-phase P90 baselines
+        mp_baselines = {
+            ('GMA', 'GMA'): {'mp1_p90_hours': 6, 'mp2_p90_hours': 4, 'mp3_p90_hours': 4, 'mp4_p90_hours': 12, 'mp5_p90_hours': 2, 'mp6_p90_hours': 2, 'mp7_p90_hours': 4},
+            ('GMA', 'Luzon 1'): {'mp1_p90_hours': 6, 'mp2_p90_hours': 4, 'mp3_p90_hours': 6, 'mp4_p90_hours': 12, 'mp5_p90_hours': 4, 'mp6_p90_hours': 4, 'mp7_p90_hours': 4},
+            ('GMA', 'Luzon 2'): {'mp1_p90_hours': 6, 'mp2_p90_hours': 4, 'mp3_p90_hours': 10, 'mp4_p90_hours': 12, 'mp5_p90_hours': 6, 'mp6_p90_hours': 4, 'mp7_p90_hours': 6},
+            ('GMA', 'Luzon 3'): {'mp1_p90_hours': 6, 'mp2_p90_hours': 4, 'mp3_p90_hours': 12, 'mp4_p90_hours': 12, 'mp5_p90_hours': 12, 'mp6_p90_hours': 4, 'mp7_p90_hours': 8},
+            ('GMA', 'Luzon 4'): {'mp1_p90_hours': 6, 'mp2_p90_hours': 4, 'mp3_p90_hours': 48, 'mp4_p90_hours': 12, 'mp5_p90_hours': 12, 'mp6_p90_hours': 4, 'mp7_p90_hours': 8},
+            ('GMA', 'Visayas 1'): {'mp1_p90_hours': 6, 'mp2_p90_hours': 4, 'mp3_p90_hours': 18, 'mp4_p90_hours': 12, 'mp5_p90_hours': 12, 'mp6_p90_hours': 4, 'mp7_p90_hours': 6},
+            ('GMA', 'Visayas 2'): {'mp1_p90_hours': 6, 'mp2_p90_hours': 4, 'mp3_p90_hours': 18, 'mp4_p90_hours': 12, 'mp5_p90_hours': 12, 'mp6_p90_hours': 4, 'mp7_p90_hours': 6},
+            ('GMA', 'Visayas 3'): {'mp1_p90_hours': 6, 'mp2_p90_hours': 4, 'mp3_p90_hours': 18, 'mp4_p90_hours': 12, 'mp5_p90_hours': 12, 'mp6_p90_hours': 4, 'mp7_p90_hours': 6},
+            ('GMA', 'Mindanao 1'): {'mp1_p90_hours': 6, 'mp2_p90_hours': 4, 'mp3_p90_hours': 30, 'mp4_p90_hours': 12, 'mp5_p90_hours': 16, 'mp6_p90_hours': 4, 'mp7_p90_hours': 8},
+            ('GMA', 'Mindanao 2'): {'mp1_p90_hours': 6, 'mp2_p90_hours': 4, 'mp3_p90_hours': 30, 'mp4_p90_hours': 12, 'mp5_p90_hours': 16, 'mp6_p90_hours': 4, 'mp7_p90_hours': 8},
+        }
+        
+        # Filter controls
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            risk_filter = st.multiselect(
+                "Filter by Risk Tier",
+                ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+                default=["HIGH", "CRITICAL"]
+            )
+        
+        with col2:
+            origin_filter = st.multiselect(
+                "Filter by Origin",
+                df_filtered['origin_region'].unique() if 'origin_region' in df_filtered.columns else [],
+                default=None
+            )
+        
+        with col3:
+            dest_filter = st.multiselect(
+                "Filter by Destination",
+                df_filtered['destination_region'].unique() if 'destination_region' in df_filtered.columns else [],
+                default=None
+            )
+        
+        with col4:
+            status_filter = st.multiselect(
+                "Filter by T3 Status",
+                ["ON_TIME", "ON_TRACK", "SOFT_BREACH", "HARD_BREACH", "BREACH"],
+                default=["SOFT_BREACH", "HARD_BREACH", "BREACH"]
+            )
+        
+        # Apply Phase 2C analysis
+        st.markdown("### Applying Breach Prediction Analysis...")
+        progress_bar = st.progress(0)
+        
+        breach_results = []
+        current_time = datetime.now()
+        
+        for idx, row in df_filtered.iterrows():
+            try:
+                route = (row.get('origin_region', 'GMA'), row.get('destination_region', 'GMA'))
+                
+                if route in sla_ref and route in mp_baselines:
+                    # Convert timestamp fields
+                    order_data = {
+                        'tracking_number': row.get('tracking_number', f'TRK{idx}'),
+                        'origin_region': row.get('origin_region', 'GMA'),
+                        'destination_region': row.get('destination_region', 'GMA'),
+                        'lvl1_IN_TRANSIT_ts': pd.to_datetime(row.get('lvl1_IN_TRANSIT_ts'), errors='coerce'),
+                        'lvl2_domestic_ib_success_first_mile_hub_ts': pd.to_datetime(row.get('lvl2_domestic_ib_success_first_mile_hub_ts'), errors='coerce'),
+                        'lvl2_domestic_ob_success_first_mile_hub_ts': pd.to_datetime(row.get('lvl2_domestic_ob_success_first_mile_hub_ts'), errors='coerce'),
+                        'lvl2_domestic_ib_success_in_sort_center_ts': pd.to_datetime(row.get('lvl2_domestic_ib_success_in_sort_center_ts'), errors='coerce'),
+                        'lvl2_domestic_ob_success_in_sort_center_ts': pd.to_datetime(row.get('lvl2_domestic_ob_success_in_sort_center_ts'), errors='coerce'),
+                        'lvl2_domestic_package_stationed_in_ts': pd.to_datetime(row.get('lvl2_domestic_package_stationed_in_ts'), errors='coerce'),
+                        'lvl2_domestic_package_stationed_out_ts': pd.to_datetime(row.get('lvl2_domestic_package_stationed_out_ts'), errors='coerce'),
+                        'lvl2_first_attempt_ts': pd.to_datetime(row.get('lvl2_first_attempt_ts'), errors='coerce'),
+                    }
+                    
+                    result = analyze_order(order_data, sla_ref, mp_baselines, current_time)
+                    result['row_idx'] = idx
+                    breach_results.append(result)
+            except Exception as e:
+                pass
+            
+            progress_bar.progress(min((idx + 1) / len(df_filtered), 1.0))
+        
+        progress_bar.empty()
+        
+        if breach_results:
+            results_df = pd.DataFrame(breach_results)
+            
+            # Apply filters
+            if risk_filter:
+                results_df = results_df[results_df['risk_tier'].isin(risk_filter)]
+            if origin_filter:
+                results_df = results_df[results_df['origin_region'].isin(origin_filter)]
+            if dest_filter:
+                results_df = results_df[results_df['destination_region'].isin(dest_filter)]
+            if status_filter:
+                results_df = results_df[results_df['t3_status'].isin(status_filter)]
+            
+            # Risk Summary Cards
+            st.markdown("### Risk Summary")
+            col1, col2, col3, col4 = st.columns(4)
+            
+            low_count = len(results_df[results_df['risk_tier'] == 'LOW'])
+            med_count = len(results_df[results_df['risk_tier'] == 'MEDIUM'])
+            high_count = len(results_df[results_df['risk_tier'] == 'HIGH'])
+            crit_count = len(results_df[results_df['risk_tier'] == 'CRITICAL'])
+            
+            with col1:
+                st.metric("🟢 LOW", low_count)
+            with col2:
+                st.metric("🟡 MEDIUM", med_count)
+            with col3:
+                st.metric("🔴 HIGH", high_count)
+            with col4:
+                st.metric("🔴🔴 CRITICAL", crit_count)
+            
+            # At-Risk Packages Table
+            st.markdown("### At-Risk Packages")
+            display_cols = ['tracking', 'route', 't3_status', 't3_remaining_days', 'buffer_days', 'risk_tier', 'current_phase']
+            display_df = results_df[display_cols].copy()
+            display_df.columns = ['Tracking', 'Route', 'T3 Status', 'Remaining Days', 'Buffer Days', 'Risk Tier', 'Current Phase']
+            display_df = display_df.sort_values('Risk Tier', key=lambda x: x.map({'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3}))
+            
+            st.dataframe(display_df, use_container_width=True, height=400)
+            
+            # Bottleneck Analysis
+            if any(results_df['bottlenecks'].apply(len) > 0):
+                st.markdown("### Bottleneck Analysis")
+                bottleneck_summary = []
+                for _, row in results_df.iterrows():
+                    if row['bottlenecks']:
+                        for bn in row['bottlenecks']:
+                            bottleneck_summary.append({
+                                'Tracking': row['tracking'],
+                                'Phase': bn['phase'],
+                                'Actual (h)': f"{bn['actual_hours']:.1f}",
+                                'P90 (h)': f"{bn['p90_hours']:.1f}",
+                                'Excess (h)': f"{bn['excess_hours']:.1f}",
+                                'Severity': bn['severity']
+                            })
+                
+                if bottleneck_summary:
+                    bn_df = pd.DataFrame(bottleneck_summary)
+                    st.dataframe(bn_df, use_container_width=True)
+        else:
+            st.info("No packages match the selected filters.")
 
 
 st.divider()
