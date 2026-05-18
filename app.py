@@ -984,9 +984,9 @@ st.markdown("## 4️⃣ Breach")
 try:
     col1, col2, col3, col4 = st.columns(4)
     
-    forward_breach = (df_filtered['is_forward_hard_breach'] == 'Yes').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
-    rts_breach = (df_filtered['is_rts_hard_breach'] == 'Yes').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
-    e2e_breach = (df_filtered['final_status'] == 'BREACHED').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
+    forward_breach = (df_filtered['is_forward_hard_breach'].astype(str) == '1').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
+    rts_breach = (df_filtered['is_rts_hard_breach'].astype(str) == '1').sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
+    e2e_breach = ((df_filtered['is_forward_hard_breach'].astype(str) == '1') | (df_filtered['is_rts_hard_breach'].astype(str) == '1')).sum() / len(df_filtered) * 100 if len(df_filtered) > 0 else 0
     promise_breach = len(df_filtered) > 0 and 0  # Placeholder
     
     with col1:
@@ -1006,7 +1006,7 @@ try:
         if 'lvl1_final_status_ts' in df_trend_fwd.columns and not df_trend_fwd.empty:
             df_trend_fwd['time_bucket'] = get_time_column(df_trend_fwd['lvl1_final_status_ts'], granularity)
             trend_fwd = df_trend_fwd.groupby('time_bucket').apply(
-                lambda x: (x['is_forward_hard_breach'] == 'Yes').sum() / len(x) * 100 if len(x) > 0 else 0
+                lambda x: (x['is_forward_hard_breach'].astype(str) == '1').sum() / len(x) * 100 if len(x) > 0 else 0
             ).reset_index()
             trend_fwd.columns = ['time_bucket', 'fwd_breach']
             trend_fwd = trend_fwd.sort_values('time_bucket')
@@ -1023,7 +1023,7 @@ try:
         if 'lvl1_final_status_ts' in df_trend_rts.columns and not df_trend_rts.empty:
             df_trend_rts['time_bucket'] = get_time_column(df_trend_rts['lvl1_final_status_ts'], granularity)
             trend_rts = df_trend_rts.groupby('time_bucket').apply(
-                lambda x: (x['is_rts_hard_breach'] == 'Yes').sum() / len(x) * 100 if len(x) > 0 else 0
+                lambda x: (x['is_rts_hard_breach'].astype(str) == '1').sum() / len(x) * 100 if len(x) > 0 else 0
             ).reset_index()
             trend_rts.columns = ['time_bucket', 'rts_breach']
             trend_rts = trend_rts.sort_values('time_bucket')
