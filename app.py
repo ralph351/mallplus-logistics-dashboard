@@ -298,13 +298,29 @@ def compute_anomalies(df):
     
     return df
 
-def apply_filters(df, oc_dates, rfh_dates, transit_dates, final_dates, granularity, three_pl):
+def apply_filters(df, oc_dates, rfh_dates, transit_dates, final_dates, granularity, three_pl, origin_region=None, origin_address_id=None, dest_region=None, dest_address_id=None):
     """Apply multi-dimensional filters to dataframe. Safe column checking."""
     df_filtered = df.copy()
     
     # 3PL filter (only if column exists)
     if three_pl and three_pl != "All 3PLs" and 'lm_3pl_name' in df.columns:
         df_filtered = df_filtered[df_filtered['lm_3pl_name'] == three_pl]
+    
+    # Origin Region filter
+    if origin_region and origin_region != "All Regions" and 'origin_region' in df.columns:
+        df_filtered = df_filtered[df_filtered['origin_region'] == origin_region]
+    
+    # Origin Address ID filter
+    if origin_address_id and origin_address_id != "All Addresses" and 'lvl2_origin_address_id' in df.columns:
+        df_filtered = df_filtered[df_filtered['lvl2_origin_address_id'] == origin_address_id]
+    
+    # Destination Region filter
+    if dest_region and dest_region != "All Regions" and 'destination_region' in df.columns:
+        df_filtered = df_filtered[df_filtered['destination_region'] == dest_region]
+    
+    # Destination Address ID filter
+    if dest_address_id and dest_address_id != "All Addresses" and 'lvl2_destination_address_id' in df.columns:
+        df_filtered = df_filtered[df_filtered['lvl2_destination_address_id'] == dest_address_id]
     
     # Date range filters (AND logic) - only apply if column exists
     if oc_dates and 'order_create_ts' in df.columns:
@@ -426,40 +442,56 @@ with col1:
     )
 
 with col2:
-    oc_dates = st.date_input(
-        "Order Create Date",
-        value=[],
-        max_value=datetime.now().date(),
-        help="Leave blank for all dates"
+    # Origin Region filter
+    origin_region_options = ["All Regions"]
+    if 'origin_region' in df.columns:
+        origin_region_options += list(df['origin_region'].dropna().unique())
+    origin_region = st.selectbox(
+        "Origin Region",
+        origin_region_options,
+        help="Select origin region or view all"
     )
-    oc_dates = tuple(oc_dates) if len(oc_dates) == 2 else None
 
 with col3:
-    rfh_dates = st.date_input(
-        "Request Handover Date",
-        value=[],
-        max_value=datetime.now().date(),
-        help="When seller marked ready"
+    # Origin Address ID filter (depends on origin_region selection)
+    origin_address_options = ["All Addresses"]
+    if 'lvl2_origin_address_id' in df.columns:
+        if origin_region != "All Regions":
+            filtered_by_origin_region = df[df['origin_region'] == origin_region]
+            origin_address_options += list(filtered_by_origin_region['lvl2_origin_address_id'].dropna().unique())
+        else:
+            origin_address_options += list(df['lvl2_origin_address_id'].dropna().unique())
+    origin_address_id = st.selectbox(
+        "Origin Address ID",
+        origin_address_options,
+        help="Select origin address or view all"
     )
-    rfh_dates = tuple(rfh_dates) if len(rfh_dates) == 2 else None
 
 with col4:
-    transit_dates = st.date_input(
-        "In Transit Date",
-        value=[],
-        max_value=datetime.now().date(),
-        help="When 3PL received"
+    # Destination Region filter
+    dest_region_options = ["All Regions"]
+    if 'destination_region' in df.columns:
+        dest_region_options += list(df['destination_region'].dropna().unique())
+    dest_region = st.selectbox(
+        "Destination Region",
+        dest_region_options,
+        help="Select destination region or view all"
     )
-    transit_dates = tuple(transit_dates) if len(transit_dates) == 2 else None
 
 with col5:
-    final_dates = st.date_input(
-        "Final Status Date",
-        value=[],
-        max_value=datetime.now().date(),
-        help="When parcel completed"
+    # Destination Address ID filter (depends on dest_region selection)
+    dest_address_options = ["All Addresses"]
+    if 'lvl2_destination_address_id' in df.columns:
+        if dest_region != "All Regions":
+            filtered_by_dest_region = df[df['destination_region'] == dest_region]
+            dest_address_options += list(filtered_by_dest_region['lvl2_destination_address_id'].dropna().unique())
+        else:
+            dest_address_options += list(df['lvl2_destination_address_id'].dropna().unique())
+    dest_address_id = st.selectbox(
+        "Destination Address ID",
+        dest_address_options,
+        help="Select destination address or view all"
     )
-    final_dates = tuple(final_dates) if len(final_dates) == 2 else None
 
 with col6:
     granularity = st.radio(
@@ -471,8 +503,50 @@ with col6:
 
 st.divider()
 
-# Apply filters
-df_filtered = apply_filters(df, oc_dates, rfh_dates, transit_dates, final_dates, granularity, three_pl)
+# Row 2: Date filters (moved below geographic filters for better UX)
+col_d1, col_d2, col_d3, col_d4 = st.columns(4)
+
+with col_d1:
+    oc_dates = st.date_input(
+        "Order Create Date",
+        value=[],
+        max_value=datetime.now().date(),
+        help="Leave blank for all dates"
+    )
+    oc_dates = tuple(oc_dates) if len(oc_dates) == 2 else None
+
+with col_d2:
+    rfh_dates = st.date_input(
+        "Request Handover Date",
+        value=[],
+        max_value=datetime.now().date(),
+        help="When seller marked ready"
+    )
+    rfh_dates = tuple(rfh_dates) if len(rfh_dates) == 2 else None
+
+with col_d3:
+    transit_dates = st.date_input(
+        "In Transit Date",
+        value=[],
+        max_value=datetime.now().date(),
+        help="When 3PL received"
+    )
+    transit_dates = tuple(transit_dates) if len(transit_dates) == 2 else None
+
+with col_d4:
+    final_dates = st.date_input(
+        "Final Status Date",
+        value=[],
+        max_value=datetime.now().date(),
+        help="When parcel completed"
+    )
+    final_dates = tuple(final_dates) if len(final_dates) == 2 else None
+
+st.divider()
+
+# Apply filters (now includes geographic filters)
+df_filtered = apply_filters(df, oc_dates, rfh_dates, transit_dates, final_dates, granularity, three_pl, 
+                           origin_region, origin_address_id, dest_region, dest_address_id)
 
 if df_filtered.empty:
     st.warning("No data matches selected filters")
@@ -579,6 +653,155 @@ st.divider()
 # ============================================================================
 
 st.markdown("## 3️⃣ Operations")
+
+# ============ OPERATIONS SCORECARD (NEW) ============
+st.markdown("### Operations Scorecard - Dynamic Pivot Table")
+
+try:
+    # Define available dimensions
+    available_dimensions = []
+    if 'origin_region' in df_filtered.columns:
+        available_dimensions.append('origin_region')
+    if 'lvl2_origin_address_id' in df_filtered.columns:
+        available_dimensions.append('lvl2_origin_address_id')
+    if 'destination_region' in df_filtered.columns:
+        available_dimensions.append('destination_region')
+    if 'lvl2_destination_address_id' in df_filtered.columns:
+        available_dimensions.append('lvl2_destination_address_id')
+    if 'lm_3pl_name' in df_filtered.columns:
+        available_dimensions.append('lm_3pl_name')
+    
+    if available_dimensions:
+        # User selects which dimensions to include
+        selected_dimensions = st.multiselect(
+            "Select Row Dimensions for Scorecard",
+            available_dimensions,
+            default=available_dimensions[:2] if len(available_dimensions) >= 2 else available_dimensions,
+            help="Choose which dimensions to pivot by"
+        )
+        
+        if selected_dimensions:
+            # Prepare data for pivot table
+            pivot_data = df_filtered.copy()
+            
+            # Calculate KPI values
+            # 3a. Pickup Compliance %
+            if 'pickup_sla_compliance' in pivot_data.columns:
+                pivot_data['pickup_compliance'] = (pivot_data['pickup_sla_compliance'] == 'pass').astype(int)
+            else:
+                pivot_data['pickup_compliance'] = 0
+            
+            # 3b. Forward Delivery Compliance %
+            if 'forward_delivery_compliance' in pivot_data.columns:
+                pivot_data['forward_compliance'] = (pivot_data['forward_delivery_compliance'] == 'pass').astype(int)
+            else:
+                pivot_data['forward_compliance'] = 0
+            
+            # 3c-3f. Lead times already calculated in prepare_data()
+            # 3g. Failed Delivery %
+            if 'final_status' in pivot_data.columns:
+                pivot_data['failed_delivery'] = pivot_data['final_status'].isin(['FAILED', 'RTS']).astype(int)
+            else:
+                pivot_data['failed_delivery'] = 0
+            
+            # Build aggregation dictionary
+            agg_dict = {
+                'pickup_compliance': ['sum', 'count'],
+                'forward_compliance': ['sum', 'count'],
+                'oc_to_rfh_days': 'mean',
+                'oc_to_fa_days': 'mean',
+                'rfh_to_fa_days': 'mean',
+                'failed_delivery': ['sum', 'count']
+            }
+            
+            # Add p90 calculation
+            p90_data = pivot_data.groupby(selected_dimensions)['rfh_to_fa_days'].quantile(0.9).to_frame(name='rfh_to_fa_p90')
+            
+            # Perform groupby aggregation
+            scorecard = pivot_data.groupby(selected_dimensions, dropna=False).agg(agg_dict).reset_index()
+            
+            # Flatten multi-level column names
+            scorecard.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in scorecard.columns.values]
+            
+            # Rename for readability
+            rename_map = {
+                'pickup_compliance_sum': 'Pickup_Pass',
+                'pickup_compliance_count': 'Pickup_Total',
+                'forward_compliance_sum': 'Forward_Pass',
+                'forward_compliance_count': 'Forward_Total',
+                'oc_to_rfh_days_mean': 'OC_to_RFH_days',
+                'oc_to_fa_days_mean': 'OC_to_FA_days',
+                'rfh_to_fa_days_mean': 'RFH_to_FA_days',
+                'failed_delivery_sum': 'Failed_Count',
+                'failed_delivery_count': 'Delivery_Total'
+            }
+            scorecard = scorecard.rename(columns=rename_map)
+            
+            # Merge p90 data
+            scorecard = scorecard.merge(p90_data.reset_index(), on=selected_dimensions, how='left')
+            
+            # Calculate percentages
+            scorecard['Pickup_Compliance_%'] = (scorecard['Pickup_Pass'] / scorecard['Pickup_Total'] * 100).round(2)
+            scorecard['Forward_Compliance_%'] = (scorecard['Forward_Pass'] / scorecard['Forward_Total'] * 100).round(2)
+            scorecard['Failed_Delivery_%'] = (scorecard['Failed_Count'] / scorecard['Delivery_Total'] * 100).round(2)
+            
+            # Build final display dataframe (drop intermediate columns)
+            display_cols = selected_dimensions + [
+                'Pickup_Compliance_%',
+                'Forward_Compliance_%',
+                'OC_to_RFH_days',
+                'OC_to_FA_days',
+                'RFH_to_FA_days',
+                'rfh_to_fa_p90',
+                'Failed_Delivery_%'
+            ]
+            display_cols = [col for col in display_cols if col in scorecard.columns]
+            scorecard_display = scorecard[display_cols].copy()
+            
+            # Rename for final display
+            scorecard_display = scorecard_display.rename(columns={
+                'origin_region': 'Origin Region',
+                'lvl2_origin_address_id': 'Origin Address',
+                'destination_region': 'Destination Region',
+                'lvl2_destination_address_id': 'Destination Address',
+                'lm_3pl_name': '3PL Partner',
+                'Pickup_Compliance_%': '3a. Pickup Compliance %',
+                'Forward_Compliance_%': '3b. Forward Compliance %',
+                'OC_to_RFH_days': '3c. OC→RFH (days)',
+                'OC_to_FA_days': '3d. OC→FA (days)',
+                'RFH_to_FA_days': '3e. RFH→FA (days)',
+                'rfh_to_fa_p90': '3f. RFH→FA P90 (days)',
+                'Failed_Delivery_%': '3g. Failed Delivery %'
+            })
+            
+            # Sort by first dimension
+            if len(selected_dimensions) > 0:
+                first_dim_display = selected_dimensions[0].replace('lvl2_', '').replace('_', ' ').title()
+                scorecard_display = scorecard_display.sort_values(
+                    by=[col for col in scorecard_display.columns if 'Region' in col or 'Address' in col or '3PL' in col][0],
+                    na_position='last'
+                )
+            
+            # Display with numeric formatting
+            st.dataframe(
+                scorecard_display.style.format({
+                    col: '{:.2f}' for col in scorecard_display.columns 
+                    if '%' in col or 'days' in col.lower() or 'P90' in col
+                }),
+                use_container_width=True,
+                height=400
+            )
+            
+            st.caption(f"📊 Scorecard: {len(scorecard_display)} row(s) × {len(display_cols)} metrics | Filters: {', '.join(selected_dimensions)}")
+        else:
+            st.info("Select at least one dimension to view the scorecard")
+    else:
+        st.warning("No geographic/3PL dimensions available in data")
+
+except Exception as e:
+    st.error(f"Scorecard error: {str(e)}")
+
+st.divider()
 
 # 3a. Pickup Compliance (anchored to lvl1_READY_FOR_HANDOVER_ts)
 try:
