@@ -563,7 +563,8 @@ col1, col2, col3 = st.columns(3)
 # 1a. Final Status Volume Completion
 try:
     total_orders = len(df_filtered)
-    completed_orders = len(df_filtered[df_filtered['final_status'].notna()])
+    # Count only non-empty final_status (exclude blank strings)
+    completed_orders = len(df_filtered[(df_filtered['final_status'].notna()) & (df_filtered['final_status'] != '')])
     completion_pct = (completed_orders / total_orders * 100) if total_orders > 0 else 0
     
     with col1:
@@ -572,10 +573,11 @@ except:
     with col1:
         st.metric("Final Status Volume Completion %", "N/A")
 
-# 1b. Total Volume
+# 1b. Total Volume & In-Transit Count
 try:
     with col2:
-        st.metric("Total Volume", len(df_filtered))
+        in_transit = len(df_filtered[(df_filtered['final_status'].isna()) | (df_filtered['final_status'] == '')])
+        st.metric("Total Volume", f"{len(df_filtered)} ({in_transit} in-transit)")
 except:
     with col2:
         st.metric("Total Volume", "N/A")
