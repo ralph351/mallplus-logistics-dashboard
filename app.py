@@ -948,9 +948,9 @@ with tab2:
                 kpi_data['forward_pass'] = ((kpi_data.get('forward_delivery_compliance', '') == 'pass') | 
                                            (kpi_data.get('forward_delivery_compliance', '') == 'YES')).astype(int)
                 
-                # Shipping cost (CPP numerator)
-                kpi_data['shipping_cost'] = kpi_data.get('actual_shipping_fee', kpi_data.get('estimated_shipping_fee', 0))
-                kpi_data['valuation_fee'] = kpi_data.get('valuation_fee', 0)
+                # Shipping cost (CPP numerator) - ensure numeric
+                kpi_data['shipping_cost'] = pd.to_numeric(kpi_data.get('actual_shipping_fee', kpi_data.get('estimated_shipping_fee', 0)), errors='coerce').fillna(0)
+                kpi_data['valuation_fee'] = pd.to_numeric(kpi_data.get('valuation_fee', 0), errors='coerce').fillna(0)
                 kpi_data['total_cost'] = kpi_data['shipping_cost'] + kpi_data['valuation_fee']
                 
                 # Final status flags
@@ -1003,7 +1003,9 @@ with tab2:
                 # Flatten multi-level columns
                 scorecard.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in scorecard.columns.values]
                 
-                # Calculate all 13 KPIs
+                # Calculate all 13 KPIs - ensure numeric types
+                scorecard['total_cost_sum'] = pd.to_numeric(scorecard['total_cost_sum'], errors='coerce').fillna(0)
+                scorecard['is_delivered_sum'] = pd.to_numeric(scorecard['is_delivered_sum'], errors='coerce').fillna(0)
                 scorecard['1_CPP'] = (scorecard['total_cost_sum'] / scorecard['is_delivered_sum'].replace(0, np.nan)).round(2)
                 scorecard['2_Pickup_%'] = (scorecard['pickup_pass_sum'] / scorecard['pickup_pass_count'].replace(0, np.nan) * 100).round(2)
                 scorecard['3_OC_to_RFH_days'] = scorecard['oc_to_rfh_days_mean'].round(2)
