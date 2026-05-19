@@ -972,6 +972,7 @@ with tab2:
     
     # SECTION E: Breach Prediction (PHASE 2C - LIVE)
     st.markdown("### SECTION E: Breach Prediction - At-Risk Orders (Phase 2C)")
+    st.markdown("**Advanced Breach Detection with Phase Bottleneck Analysis**")
     
     sla_ref = {
         ('GMA', 'GMA'): {'forward_delivery_sla': 2},
@@ -999,11 +1000,34 @@ with tab2:
         ('GMA', 'Mindanao 2'): {'mp1_p90_hours': 6, 'mp2_p90_hours': 4, 'mp3_p90_hours': 30, 'mp4_p90_hours': 12, 'mp5_p90_hours': 16, 'mp6_p90_hours': 4, 'mp7_p90_hours': 8},
     }
     
+    phase_names = {'mp1': 'HO→FM', 'mp2': 'FM Hub', 'mp3': 'FM→Sort', 'mp4': 'Sort', 'mp5': 'Sort→LM', 'mp6': 'LM Hub', 'mp7': 'LM→FA'}
+    team_map = {'mp1': 'FM Ops', 'mp2': 'FM Hub Mgr', 'mp3': 'Transportation', 'mp4': 'Sort Mgr', 'mp5': 'Transportation', 'mp6': 'LM Hub Mgr', 'mp7': 'Courier Ops'}
+    
+    def detect_bottleneck_phase(row, route, mp_baselines):
+        """Detect which phase is the bottleneck"""
+        baseline = mp_baselines.get(route, {})
+        phase_ts = {'mp1': 'lvl2_domestic_ib_success_first_mile_hub_ts', 'mp2': 'lvl2_domestic_ob_success_first_mile_hub_ts', 'mp3': 'lvl2_domestic_ib_success_in_sort_center_ts', 'mp4': 'lvl2_domestic_ob_success_in_sort_center_ts', 'mp5': 'lvl2_domestic_package_stationed_in_ts', 'mp6': 'lvl2_domestic_package_stationed_out_ts', 'mp7': 'lvl2_first_attempt_ts'}
+        bottleneck_phase = None
+        max_excess = 0
+        for phase, ts_field in phase_ts.items():
+            ts = pd.to_datetime(row.get(ts_field), errors='coerce')
+            if pd.isna(ts):
+                break
+            prev_ts = pd.to_datetime(row.get(phase_ts.get(list(phase_ts.keys())[list(phase_ts.keys()).index(phase)-1]) if list(phase_ts.keys()).index(phase) > 0 else 'lvl1_IN_TRANSIT_ts'), errors='coerce')
+            if pd.notna(prev_ts):
+                duration_hours = (ts - prev_ts).total_seconds() / 3600
+                p90_hours = baseline.get(f'{phase}_p90_hours', 24)
+                excess = max(0, duration_hours - p90_hours)
+                if excess > max_excess:
+                    max_excess = excess
+                    bottleneck_phase = phase
+        return bottleneck_phase, max_excess
+    
     breach_results = []
     for idx, row in df_filtered.iterrows():
         try:
             route = (row.get('origin_region', 'GMA'), row.get('destination_region', 'GMA'))
-            if route in sla_ref and route in mp_baselines:
+            if route in sla_ref:
                 t3_start = pd.to_datetime(row.get('lvl1_IN_TRANSIT_ts'), errors='coerce')
                 t3_end = pd.to_datetime(row.get('lvl2_first_attempt_ts'), errors='coerce')
                 
@@ -1013,38 +1037,46 @@ with tab2:
                     
                     if pd.notna(t3_end):
                         elapsed = (t3_end - t3_start).total_seconds() / 3600 / 24
-                        t3_remaining = 0
+                        t3_remaining = sla_days - elapsed
                         status = 'ON_TIME' if t3_end <= sla_target else 'BREACH'
+                        days_overdue = max(0, elapsed - sla_days)
                     else:
                         elapsed = (datetime.now() - t3_start).total_seconds() / 3600 / 24
-                        t3_remaining = (sla_target - datetime.now()).total_seconds() / 3600 / 24
+                        t3_remaining = sla_days - elapsed
                         status = 'ON_TRACK' if t3_remaining > 0 else 'BREACH'
+                        days_overdue = max(0, -t3_remaining)
                     
-                    buffer_days = sla_days - elapsed if pd.notna(t3_end) else t3_remaining
-                    
-                    if buffer_days > 1:
+                    if t3_remaining > 1:
                         risk = 'LOW'
-                    elif buffer_days > 0:
+                    elif t3_remaining > 0:
                         risk = 'MEDIUM'
-                    elif buffer_days > -1:
+                    elif t3_remaining > -1:
                         risk = 'HIGH'
                     else:
                         risk = 'CRITICAL'
+                    
+                    bottleneck_phase, excess_hours = detect_bottleneck_phase(row, route, mp_baselines)
+                    bottleneck_str = f"{phase_names.get(bottleneck_phase, 'N/A')} (+{excess_hours:.1f}h)" if bottleneck_phase else "None"
+                    escalation_team = team_map.get(bottleneck_phase, "Operations Mgr")
                     
                     breach_results.append({
                         'tracking': row.get('tracking_number', f'TRK{idx}'),
                         'route': f"{route[0]}→{route[1]}",
                         't3_status': status,
-                        't3_remaining_days': t3_remaining,
-                        'buffer_days': buffer_days,
+                        'days_overdue': days_overdue,
+                        'sla_remaining': t3_remaining,
+                        'bottleneck': bottleneck_str,
+                        'escalation': escalation_team,
                         'risk_tier': risk,
-                        'current_phase': 'In Progress' if pd.isna(t3_end) else 'Delivered'
+                        'row_data': row
                     })
         except:
             pass
     
     if breach_results:
         results_df = pd.DataFrame(breach_results)
+        
+        # Risk summary cards
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("🟢 LOW", len(results_df[results_df['risk_tier']=='LOW']))
@@ -1055,9 +1087,29 @@ with tab2:
         with col4:
             st.metric("🔴🔴 CRITICAL", len(results_df[results_df['risk_tier']=='CRITICAL']))
         
-        st.dataframe(results_df[['tracking', 'route', 't3_status', 'buffer_days', 'risk_tier']].sort_values('risk_tier', key=lambda x: x.map({'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3})), use_container_width=True, height=300)
+        st.divider()
+        
+        # Enhanced table with drill-down
+        st.markdown("**At-Risk Packages (Click to expand details)**")
+        
+        sorted_df = results_df.sort_values('risk_tier', key=lambda x: x.map({'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3}))
+        
+        for idx, pkg in sorted_df.iterrows():
+            risk_icon = {'LOW': '🟢', 'MEDIUM': '🟡', 'HIGH': '🔴', 'CRITICAL': '🔴🔴'}[pkg['risk_tier']]
+            
+            with st.expander(f"{risk_icon} {pkg['tracking']} | {pkg['route']} | {pkg['t3_status']} | Days Overdue: {pkg['days_overdue']:.1f}"):
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("SLA Remaining (Days)", f"{pkg['sla_remaining']:.1f}")
+                with col2:
+                    st.metric("Bottleneck Phase", pkg['bottleneck'])
+                with col3:
+                    st.metric("Escalate To", pkg['escalation'])
+                
+                st.markdown(f"**Action Required:** Contact **{pkg['escalation']}** - {pkg['bottleneck']}")
+                st.markdown(f"**Status:** {pkg['t3_status']} | **Risk:** {pkg['risk_tier']}")
     else:
-        st.info("No packages in-transit or at-risk.")
+        st.info("✅ No at-risk packages detected. All deliveries are on track or completed within SLA.")
 
 
 # ============================================================================
