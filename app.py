@@ -922,7 +922,7 @@ with tab2:
                 # Map display names back to actual column names
                 selected_dimensions = [dimension_map[d] for d in selected_dims_display]
                 
-                # Prepare data for KPI calculation
+                # Prepare data for KPI calculation - use only existing fields from mock data
                 kpi_data = df_filtered.copy()
                 
                 # Parse timestamps
@@ -932,24 +932,32 @@ with tab2:
                     if col in kpi_data.columns:
                         kpi_data[col] = pd.to_datetime(kpi_data[col], errors='coerce')
                 
-                # Calculate lead times (in days)
+                # Calculate lead times (in days) - only if columns exist
                 if 'order_create_ts' in kpi_data.columns and 'lvl1_READY_FOR_HANDOVER_ts' in kpi_data.columns:
                     kpi_data['oc_to_rfh_days'] = (kpi_data['lvl1_READY_FOR_HANDOVER_ts'] - kpi_data['order_create_ts']).dt.total_seconds() / 86400
+                else:
+                    kpi_data['oc_to_rfh_days'] = np.nan
                 
                 if 'order_create_ts' in kpi_data.columns and 'lvl2_first_attempt_ts' in kpi_data.columns:
                     kpi_data['oc_to_fa_days'] = (kpi_data['lvl2_first_attempt_ts'] - kpi_data['order_create_ts']).dt.total_seconds() / 86400
+                else:
+                    kpi_data['oc_to_fa_days'] = np.nan
                 
                 if 'lvl1_READY_FOR_HANDOVER_ts' in kpi_data.columns and 'lvl2_first_attempt_ts' in kpi_data.columns:
                     kpi_data['rfh_to_fa_days'] = (kpi_data['lvl2_first_attempt_ts'] - kpi_data['lvl1_READY_FOR_HANDOVER_ts']).dt.total_seconds() / 86400
-                
-                # Mark compliance flags
-                kpi_data['pickup_pass'] = ((kpi_data.get('pickup_sla_compliance', '') == 'pass') | 
-                                          (kpi_data.get('pickup_sla_compliance', '') == 'YES')).astype(int)
-                kpi_data['forward_pass'] = ((kpi_data.get('forward_delivery_compliance', '') == 'pass') | 
-                                           (kpi_data.get('forward_delivery_compliance', '') == 'YES')).astype(int)
+                else:
+                    kpi_data['rfh_to_fa_days'] = np.nan
                 
                 # Shipping cost (CPP numerator) - ensure numeric
-                kpi_data['shipping_cost'] = pd.to_numeric(kpi_data.get('actual_shipping_fee', kpi_data.get('estimated_shipping_fee', 0)), errors='coerce').fillna(0)
+                actual_fee = kpi_data.get('actual_shipping_fee', None)
+                estimated_fee = kpi_data.get('estimated_shipping_fee', None)
+                if actual_fee is not None:
+                    kpi_data['shipping_cost'] = pd.to_numeric(actual_fee, errors='coerce').fillna(0)
+                elif estimated_fee is not None:
+                    kpi_data['shipping_cost'] = pd.to_numeric(estimated_fee, errors='coerce').fillna(0)
+                else:
+                    kpi_data['shipping_cost'] = 0
+                
                 kpi_data['valuation_fee'] = pd.to_numeric(kpi_data.get('valuation_fee', 0), errors='coerce').fillna(0)
                 kpi_data['total_cost'] = kpi_data['shipping_cost'] + kpi_data['valuation_fee']
                 
@@ -958,67 +966,65 @@ with tab2:
                 kpi_data['is_failed'] = (kpi_data.get('final_status', '').isin(['FAILED', 'DELIVERY_FAILED'])).astype(int)
                 kpi_data['is_lost'] = (kpi_data.get('final_status', '') == 'PACKAGE_LOST').astype(int)
                 kpi_data['is_damaged'] = (kpi_data.get('final_status', '') == 'PACKAGE_DAMAGED').astype(int)
-                kpi_data['is_breached'] = (kpi_data.get('final_status', '') == 'PACKAGE_BREACHED').astype(int)
+                kpi_data['total_parcels'] = 1  # Counter for aggregation
                 
-                # Forward/RTS breach flags
-                kpi_data['forward_breach'] = (kpi_data.get('is_forward_hard_breach', 0) == 1).astype(int)
-                kpi_data['rts_breach'] = (kpi_data.get('is_rts_hard_breach', 0) == 1).astype(int)
-                kpi_data['any_breach'] = ((kpi_data['forward_breach'] | kpi_data['rts_breach'])).astype(int)
+                # Compliance flags from mock data
+                kpi_data['pickup_compliant'] = (kpi_data.get('pickup_sla_compliance', '') == 'YES').astype(int)
+                kpi_data['forward_compliant'] = (kpi_data.get('forward_delivery_compliance', '') == 'YES').astype(int)
+                
+                # Breach flags from mock data
+                kpi_data['forward_soft_br'] = pd.to_numeric(kpi_data.get('is_forward_soft_breach', 0), errors='coerce').fillna(0).astype(int)
+                kpi_data['forward_hard_br'] = pd.to_numeric(kpi_data.get('is_forward_hard_breach', 0), errors='coerce').fillna(0).astype(int)
+                kpi_data['rts_soft_br'] = pd.to_numeric(kpi_data.get('is_rts_soft_breach', 0), errors='coerce').fillna(0).astype(int)
+                kpi_data['rts_hard_br'] = pd.to_numeric(kpi_data.get('is_rts_hard_breach', 0), errors='coerce').fillna(0).astype(int)
                 
                 # Aggregate by dimensions
-                agg_dict = {
-                    'total_cost': 'sum',
-                    'is_delivered': 'sum',
-                    'pickup_pass': ['sum', 'count'],
-                    'forward_pass': 'sum',
-                    'oc_to_rfh_days': 'mean',
-                    'oc_to_fa_days': 'mean',
-                    'rfh_to_fa_days': ['mean', ('rfh_to_fa_p90', lambda x: x.quantile(0.9))],
-                    'is_failed': 'sum',
-                    'is_lost': 'sum',
-                    'is_damaged': 'sum',
-                    'forward_breach': 'sum',
-                    'rts_breach': 'sum',
-                    'any_breach': 'sum',
-                    'lvl1_IN_TRANSIT_ts': 'count'
-                }
-                
                 scorecard = kpi_data.groupby(selected_dimensions, dropna=False).agg({
                     'total_cost': 'sum',
                     'is_delivered': 'sum',
-                    'pickup_pass': 'sum',
-                    'forward_pass': 'sum',
+                    'total_parcels': 'sum',
+                    'pickup_compliant': 'sum',
+                    'forward_compliant': 'sum',
                     'oc_to_rfh_days': 'mean',
                     'oc_to_fa_days': 'mean',
-                    'rfh_to_fa_days': ['mean', 'count'],
+                    'rfh_to_fa_days': ['mean', lambda x: x.quantile(0.9)],
                     'is_failed': 'sum',
                     'is_lost': 'sum',
                     'is_damaged': 'sum',
-                    'forward_breach': 'sum',
-                    'rts_breach': 'sum',
-                    'any_breach': 'sum',
-                    'lvl1_IN_TRANSIT_ts': 'count'
+                    'forward_soft_br': 'sum',
+                    'forward_hard_br': 'sum',
+                    'rts_soft_br': 'sum',
+                    'rts_hard_br': 'sum'
                 }).reset_index()
                 
                 # Flatten multi-level columns
-                scorecard.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in scorecard.columns.values]
+                scorecard.columns = ['_'.join(col).strip('_') if isinstance(col, tuple) and col[1] else col[0] if isinstance(col, tuple) else col 
+                                    for col in scorecard.columns.values]
                 
-                # Calculate all 13 KPIs - ensure numeric types
-                scorecard['total_cost_sum'] = pd.to_numeric(scorecard['total_cost_sum'], errors='coerce').fillna(0)
-                scorecard['is_delivered_sum'] = pd.to_numeric(scorecard['is_delivered_sum'], errors='coerce').fillna(0)
-                scorecard['1_CPP'] = (scorecard['total_cost_sum'] / scorecard['is_delivered_sum'].replace(0, np.nan)).round(2)
-                scorecard['2_Pickup_%'] = (scorecard['pickup_pass_sum'] / scorecard['pickup_pass_count'].replace(0, np.nan) * 100).round(2)
-                scorecard['3_OC_to_RFH_days'] = scorecard['oc_to_rfh_days_mean'].round(2)
-                scorecard['4_OC_to_FA_days'] = scorecard['oc_to_fa_days_mean'].round(2)
-                scorecard['5_RFH_to_FA_days'] = scorecard['rfh_to_fa_days_mean'].round(2)
-                scorecard['6_RFH_to_FA_P90_days'] = scorecard['rfh_to_fa_days_count'].round(2)  # Placeholder - need proper P90
-                scorecard['7_Forward_SLA_%'] = (scorecard['forward_pass_sum'] / scorecard['is_delivered_sum'].replace(0, np.nan) * 100).round(2)
-                scorecard['8_Forward_Breach_%'] = (scorecard['forward_breach_sum'] / scorecard['lvl1_IN_TRANSIT_ts_count'].replace(0, np.nan) * 100).round(2)
-                scorecard['9_RTS_Breach_%'] = (scorecard['rts_breach_sum'] / scorecard['lvl1_IN_TRANSIT_ts_count'].replace(0, np.nan) * 100).round(2)
-                scorecard['10_E2E_Breach_%'] = (scorecard['any_breach_sum'] / scorecard['lvl1_IN_TRANSIT_ts_count'].replace(0, np.nan) * 100).round(2)
-                scorecard['11_FD_%'] = (scorecard['is_failed_sum'] / scorecard['lvl1_IN_TRANSIT_ts_count'].replace(0, np.nan) * 100).round(2)
-                scorecard['12_Lost_%'] = (scorecard['is_lost_sum'] / scorecard['lvl1_IN_TRANSIT_ts_count'].replace(0, np.nan) * 100).round(2)
-                scorecard['13_Damaged_%'] = (scorecard['is_damaged_sum'] / scorecard['lvl1_IN_TRANSIT_ts_count'].replace(0, np.nan) * 100).round(2)
+                # Calculate all 13 KPIs
+                scorecard['1_CPP'] = (pd.to_numeric(scorecard.get('total_cost_sum', 0), errors='coerce') / 
+                                     pd.to_numeric(scorecard.get('is_delivered_sum', 0), errors='coerce').replace(0, np.nan)).round(2)
+                scorecard['2_Pickup_%'] = (pd.to_numeric(scorecard.get('pickup_compliant_sum', 0), errors='coerce') / 
+                                          pd.to_numeric(scorecard.get('total_parcels_sum', 1), errors='coerce').replace(0, np.nan) * 100).round(2)
+                scorecard['3_OC_to_RFH_days'] = pd.to_numeric(scorecard.get('oc_to_rfh_days_mean', np.nan), errors='coerce').round(2)
+                scorecard['4_OC_to_FA_days'] = pd.to_numeric(scorecard.get('oc_to_fa_days_mean', np.nan), errors='coerce').round(2)
+                scorecard['5_RFH_to_FA_days'] = pd.to_numeric(scorecard.get('rfh_to_fa_days_mean', np.nan), errors='coerce').round(2)
+                scorecard['6_RFH_to_FA_P90_days'] = pd.to_numeric(scorecard.get('rfh_to_fa_days_<lambda>', np.nan), errors='coerce').round(2)
+                scorecard['7_Forward_SLA_%'] = (pd.to_numeric(scorecard.get('forward_compliant_sum', 0), errors='coerce') / 
+                                               pd.to_numeric(scorecard.get('is_delivered_sum', 1), errors='coerce').replace(0, np.nan) * 100).round(2)
+                scorecard['8_Forward_Breach_%'] = (pd.to_numeric(scorecard.get('forward_hard_br_sum', 0), errors='coerce') / 
+                                                  pd.to_numeric(scorecard.get('total_parcels_sum', 1), errors='coerce').replace(0, np.nan) * 100).round(2)
+                scorecard['9_RTS_Breach_%'] = (pd.to_numeric(scorecard.get('rts_hard_br_sum', 0), errors='coerce') / 
+                                              pd.to_numeric(scorecard.get('total_parcels_sum', 1), errors='coerce').replace(0, np.nan) * 100).round(2)
+                scorecard['10_E2E_Breach_%'] = ((pd.to_numeric(scorecard.get('forward_hard_br_sum', 0), errors='coerce') + 
+                                                pd.to_numeric(scorecard.get('rts_hard_br_sum', 0), errors='coerce')) / 
+                                               pd.to_numeric(scorecard.get('total_parcels_sum', 1), errors='coerce').replace(0, np.nan) * 100).round(2)
+                scorecard['11_FD_%'] = (pd.to_numeric(scorecard.get('is_failed_sum', 0), errors='coerce') / 
+                                       pd.to_numeric(scorecard.get('total_parcels_sum', 1), errors='coerce').replace(0, np.nan) * 100).round(2)
+                scorecard['12_Lost_%'] = (pd.to_numeric(scorecard.get('is_lost_sum', 0), errors='coerce') / 
+                                         pd.to_numeric(scorecard.get('total_parcels_sum', 1), errors='coerce').replace(0, np.nan) * 100).round(2)
+                scorecard['13_Damaged_%'] = (pd.to_numeric(scorecard.get('is_damaged_sum', 0), errors='coerce') / 
+                                            pd.to_numeric(scorecard.get('total_parcels_sum', 1), errors='coerce').replace(0, np.nan) * 100).round(2)
                 
                 # Select display columns
                 display_cols = selected_dimensions + [
