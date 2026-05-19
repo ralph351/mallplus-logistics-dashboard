@@ -1534,7 +1534,7 @@ with tab5:
         # TAB 2: FM Bulk Failures (from SQLite)
         with fake_tab2:
             try:
-                conn = sqlite3.connect('/Users/skynet/.openclaw/workspace-logistics/computed_fields.db')
+                conn = sqlite3.connect('computed_fields.db')
                 cursor = conn.cursor()
                 cursor.execute('SELECT fm_courier_id, fm_activity_day, fm_total_failures, fm_eod_failures_30min, fm_eod_failure_rate_pct, fm_failure_tier FROM fm_bulk ORDER BY fm_eod_failure_rate_pct DESC')
                 fm_bulk_rows = cursor.fetchall()
@@ -1579,7 +1579,7 @@ with tab5:
         # TAB 4: LM Bulk Failures (from SQLite)
         with fake_tab4:
             try:
-                conn = sqlite3.connect('/Users/skynet/.openclaw/workspace-logistics/computed_fields.db')
+                conn = sqlite3.connect('computed_fields.db')
                 cursor = conn.cursor()
                 cursor.execute('SELECT lm_courier_id, lm_activity_day, lm_total_failures, lm_eod_failures_30min, lm_eod_failure_rate_pct, lm_failure_tier FROM lm_bulk ORDER BY lm_eod_failure_rate_pct DESC')
                 lm_bulk_rows = cursor.fetchall()
