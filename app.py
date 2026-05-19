@@ -289,21 +289,13 @@ def compute_anomalies(df):
             pass
         
         # === SLA BREACH DETECTION ===
-        df['is_forward_soft_breach'] = 0
-        df['is_forward_hard_breach'] = 0
-        df['is_rts_soft_breach'] = 0
-        df['is_rts_hard_breach'] = 0
-        
-        try:
-            if 'forward_delivery_compliance' in df.columns:
-                df['is_forward_soft_breach'] = ((df['forward_delivery_compliance'] == 'soft_breach').astype(int))
-                df['is_forward_hard_breach'] = ((df['forward_delivery_compliance'] == 'hard_breach').astype(int))
-            
-            if 'rts_delivery_compliance' in df.columns:
-                df['is_rts_soft_breach'] = ((df['rts_delivery_compliance'] == 'soft_breach').astype(int))
-                df['is_rts_hard_breach'] = ((df['rts_delivery_compliance'] == 'hard_breach').astype(int))
-        except Exception as e:
-            pass
+        # Breach flags are already in mock data - don't overwrite them
+        # Ensure they exist as int type
+        for col in ['is_forward_soft_breach', 'is_forward_hard_breach', 'is_rts_soft_breach', 'is_rts_hard_breach']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
+            else:
+                df[col] = 0
         
         return df
     
