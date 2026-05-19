@@ -1526,7 +1526,7 @@ with tab5:
             fm_geo_df = df_filtered[df_filtered['flag_fake_attempt_fm_geolocation'] == 1]
             st.metric("FM Geolocation Violations", len(fm_geo_df))
             if len(fm_geo_df) > 0:
-                cols = [c for c in ['fm_3pl_name', 'tracking_number', 'origin_region', 'fm_courier_id'] if c in fm_geo_df.columns]
+                cols = [c for c in ['fm_3pl_name', 'tracking_number', 'origin_region', 'seller_id', 'seller_name', 'fm_courier_id', 'origin_geolocation', 'domestic_pickup_sign_in_failure_geolocation', 'flag_fake_attempt_fm_geolocation'] if c in fm_geo_df.columns]
                 st.dataframe(fm_geo_df[cols], use_container_width=True, height=300)
             else:
                 st.info("✅ No FM geolocation violations")
@@ -1571,7 +1571,7 @@ with tab5:
             lm_geo_df = df_filtered[df_filtered['flag_fake_attempt_lm_geolocation'] == 1]
             st.metric("LM Geolocation Violations", len(lm_geo_df))
             if len(lm_geo_df) > 0:
-                cols = [c for c in ['lm_3pl_name', 'tracking_number', 'destination_region', 'lm_courier_id'] if c in lm_geo_df.columns]
+                cols = [c for c in ['lm_3pl_name', 'tracking_number', 'destination_region', 'lm_courier_id', 'destination_geolocation', 'domestic_1st_attempt_failed_geolocation', 'flag_fake_attempt_lm_geolocation'] if c in lm_geo_df.columns]
                 st.dataframe(lm_geo_df[cols], use_container_width=True, height=300)
             else:
                 st.info("✅ No LM geolocation violations")
