@@ -1212,32 +1212,24 @@ with tab2:
             y=heatmap_regions,
             text=text_values,
             texttemplate="%{text}",
-            colorscale=[
-                [0.0,  '#2ecc71'],   # 0  → green
-                [0.2,  '#2ecc71'],
-                [0.2,  '#f1c40f'],   # 1-2 → yellow
-                [0.4,  '#f1c40f'],
-                [0.4,  '#e67e22'],   # 3-4 → orange
-                [0.6,  '#e67e22'],
-                [0.6,  '#e74c3c'],   # 5+  → red
-                [1.0,  '#c0392b'],
-            ],
+            colorscale='RdYlGn_r',  # Dynamic color scale: Red (high) → Yellow → Green (low)
             zmin=0,
-            zmax=max(5, int(pivot.values.max()) if pivot.values.max() > 0 else 5),
+            zmax=int(pivot.values.max()) if pivot.values.max() > 0 else 1,  # Scales to actual max
             showscale=True,
             colorbar=dict(
                 title='Count',
-                tickvals=[0, 1, 2, 3, 4, 5],
-                ticktext=['0', '1', '2', '3', '4', '5+'],
             ),
             hovertemplate='Region: %{y}<br>Phase: %{x}<br>Count: %{z}<extra></extra>',
         ))
+        # Add subtitle with dynamic max for context
+        max_val = int(pivot.values.max()) if pivot.values.max() > 0 else 0
+        
         hm_fig.update_layout(
-            title='At-Risk Packages: Region × Bottleneck Phase',
+            title=f'At-Risk Packages: Region × Bottleneck Phase (Max: {max_val} packages in single cell)',
             xaxis_title='Bottleneck Phase',
             yaxis_title='Destination Region',
             height=420,
-            margin=dict(l=20, r=20, t=50, b=20),
+            margin=dict(l=20, r=20, t=80, b=20),
         )
         st.plotly_chart(hm_fig, use_container_width=True)
 
