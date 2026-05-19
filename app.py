@@ -1056,7 +1056,8 @@ with tab2:
                         risk = 'CRITICAL'
                     
                     bottleneck_phase, excess_hours = detect_bottleneck_phase(row, route, mp_baselines)
-                    bottleneck_str = f"{phase_names.get(bottleneck_phase, 'N/A')} (+{excess_hours:.1f}h)" if bottleneck_phase else "None"
+                    excess_days = excess_hours / 24.0  # Convert hours to days
+                    bottleneck_str = f"{phase_names.get(bottleneck_phase, 'N/A')} (+{excess_days:.2f}d)" if bottleneck_phase else "None"
                     escalation_team = team_map.get(bottleneck_phase, "Operations Mgr")
                     
                     breach_results.append({
