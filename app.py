@@ -1515,9 +1515,13 @@ with tab5:
     # Fake Attempts Tables
     st.markdown("### Fake Attempt Analysis")
     
+    # Import SQLite for computed fields
+    import sqlite3
+    
     try:
-        fake_tab1, fake_tab2 = st.tabs(["FM Geolocation", "LM Geolocation"])
+        fake_tab1, fake_tab2, fake_tab3, fake_tab4 = st.tabs(["FM Geolocation", "FM Bulk Failures", "LM Geolocation", "LM Bulk Failures"])
         
+        # TAB 1: FM Geolocation
         with fake_tab1:
             fm_geo_df = df_filtered[df_filtered['flag_fake_attempt_fm_geolocation'] == 1]
             st.metric("FM Geolocation Violations", len(fm_geo_df))
@@ -1527,7 +1531,43 @@ with tab5:
             else:
                 st.info("✅ No FM geolocation violations")
         
+        # TAB 2: FM Bulk Failures (from SQLite)
         with fake_tab2:
+            try:
+                conn = sqlite3.connect('/Users/skynet/.openclaw/workspace-logistics/computed_fields.db')
+                cursor = conn.cursor()
+                cursor.execute('SELECT fm_courier_id, fm_activity_day, fm_total_failures, fm_eod_failures_30min, fm_eod_failure_rate_pct, fm_failure_tier FROM fm_bulk ORDER BY fm_eod_failure_rate_pct DESC')
+                fm_bulk_rows = cursor.fetchall()
+                conn.close()
+                
+                # Count suspicious
+                suspicious_fm = len([r for r in fm_bulk_rows if 'above 50%' in r[5]])
+                st.metric("FM Bulk Failure Suspicious (>50%)", suspicious_fm)
+                
+                if fm_bulk_rows:
+                    fm_bulk_df = pd.DataFrame(fm_bulk_rows, columns=['Courier ID', 'Activity Day', 'Total Failures', 'EOD Failures (30min)', 'EOD Failure Rate %', 'Tier'])
+                    
+                    # Color code by tier
+                    def color_fm_tier(val):
+                        if 'above 50%' in str(val):
+                            return 'background-color: #FFB6C6'
+                        elif '50%' in str(val):
+                            return 'background-color: #FFFFE0'
+                        else:
+                            return 'background-color: #E0FFE0'
+                    
+                    st.dataframe(
+                        fm_bulk_df.style.applymap(color_fm_tier, subset=['Tier']),
+                        use_container_width=True,
+                        height=300
+                    )
+                else:
+                    st.info("✅ No FM bulk failure data")
+            except Exception as e:
+                st.warning(f"FM Bulk query error: {str(e)}")
+        
+        # TAB 3: LM Geolocation
+        with fake_tab3:
             lm_geo_df = df_filtered[df_filtered['flag_fake_attempt_lm_geolocation'] == 1]
             st.metric("LM Geolocation Violations", len(lm_geo_df))
             if len(lm_geo_df) > 0:
@@ -1535,6 +1575,41 @@ with tab5:
                 st.dataframe(lm_geo_df[cols], use_container_width=True, height=300)
             else:
                 st.info("✅ No LM geolocation violations")
+        
+        # TAB 4: LM Bulk Failures (from SQLite)
+        with fake_tab4:
+            try:
+                conn = sqlite3.connect('/Users/skynet/.openclaw/workspace-logistics/computed_fields.db')
+                cursor = conn.cursor()
+                cursor.execute('SELECT lm_courier_id, lm_activity_day, lm_total_failures, lm_eod_failures_30min, lm_eod_failure_rate_pct, lm_failure_tier FROM lm_bulk ORDER BY lm_eod_failure_rate_pct DESC')
+                lm_bulk_rows = cursor.fetchall()
+                conn.close()
+                
+                # Count suspicious
+                suspicious_lm = len([r for r in lm_bulk_rows if 'above 50%' in r[5]])
+                st.metric("LM Bulk Failure Suspicious (>50%)", suspicious_lm)
+                
+                if lm_bulk_rows:
+                    lm_bulk_df = pd.DataFrame(lm_bulk_rows, columns=['Courier ID', 'Activity Day', 'Total Failures', 'EOD Failures (30min)', 'EOD Failure Rate %', 'Tier'])
+                    
+                    # Color code by tier
+                    def color_lm_tier(val):
+                        if 'above 50%' in str(val):
+                            return 'background-color: #FFB6C6'
+                        elif '50%' in str(val):
+                            return 'background-color: #FFFFE0'
+                        else:
+                            return 'background-color: #E0FFE0'
+                    
+                    st.dataframe(
+                        lm_bulk_df.style.applymap(color_lm_tier, subset=['Tier']),
+                        use_container_width=True,
+                        height=300
+                    )
+                else:
+                    st.info("✅ No LM bulk failure data")
+            except Exception as e:
+                st.warning(f"LM Bulk query error: {str(e)}")
     
     except Exception as e:
         st.warning(f"Fake attempts error: {str(e)}")
@@ -1552,4 +1627,4 @@ with tab6:
 
 st.divider()
 st.markdown("---")
-st.caption("🚚 MallPlus Logistics Dashboard v3.1 | Phase 2C LIVE | Build: 20260519-0700 | Last sync: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S GMT+8"))
+st.caption("🚚 MallPlus Logistics Dashboard v4.1 | Phase 2C + EXCEPTIONS Enhanced | SQLite Backend | Last sync: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S GMT+8"))
