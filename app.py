@@ -1498,7 +1498,7 @@ with tab5:
             
             display_cols = ['rank', 'tracking_number', 'issue_type', 'priority', 'impact', 'status']
             st.dataframe(
-                exc_df[display_cols].style.applymap(color_priority, subset=['priority']),
+                exc_df[display_cols],
                 use_container_width=True,
                 height=500
             )
@@ -1557,7 +1557,7 @@ with tab5:
                             return 'background-color: #E0FFE0'
                     
                     st.dataframe(
-                        fm_bulk_df.style.applymap(color_fm_tier, subset=['Tier']),
+                        fm_bulk_df,
                         use_container_width=True,
                         height=300
                     )
@@ -1602,7 +1602,7 @@ with tab5:
                             return 'background-color: #E0FFE0'
                     
                     st.dataframe(
-                        lm_bulk_df.style.applymap(color_lm_tier, subset=['Tier']),
+                        lm_bulk_df,
                         use_container_width=True,
                         height=300
                     )
