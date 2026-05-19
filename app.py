@@ -126,27 +126,6 @@ def prepare_data(df):
         df['is_package_lost'] = (df['final_status'] == 'PACKAGE_LOST').astype(int)
         df['is_package_cancelled'] = (df['final_status'] == 'PACKAGE_CANCELLED').astype(int)
         
-        # === MERGE SLA DATA FROM LOCAL SQLite DATABASE ===
-        try:
-            import sqlite3
-            sla_db_path = os.path.join(os.path.dirname(__file__), '..', 'sla_data.db')
-            if os.path.exists(sla_db_path):
-                conn = sqlite3.connect(sla_db_path)
-                sla_df = pd.read_sql_query('SELECT * FROM sla_breaches', conn)
-                conn.close()
-                
-                # Merge SLA breach flags
-                df = df.merge(sla_df, left_on='tracking_number', right_on='tracking_number', how='left')
-                
-                # Fill NaNs with defaults
-                df['forward_delivery_compliance'] = df['forward_delivery_compliance'].fillna('UNKNOWN')
-                df['is_forward_soft_breach'] = df['is_forward_soft_breach'].fillna(0).astype(int)
-                df['is_forward_hard_breach'] = df['is_forward_hard_breach'].fillna(0).astype(int)
-                df['is_rts_soft_breach'] = df['is_rts_soft_breach'].fillna(0).astype(int)
-                df['is_rts_hard_breach'] = df['is_rts_hard_breach'].fillna(0).astype(int)
-        except Exception as e:
-            st.warning(f"SLA merge issue: {str(e)}")
-        
     except Exception as e:
         st.warning(f"Data prep issue: {str(e)}")
     
