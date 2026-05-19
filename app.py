@@ -953,16 +953,19 @@ with tab2:
                 kpi_data['is_lost'] = (kpi_data.get('final_status', '') == 'PACKAGE_LOST').astype(int)
                 kpi_data['is_damaged'] = (kpi_data.get('final_status', '') == 'PACKAGE_DAMAGED').astype(int)
                 kpi_data['in_transit'] = kpi_data['lvl1_IN_TRANSIT_ts'].notna().astype(int)
+                kpi_data['delivered_count'] = (kpi_data.get('final_status', '') == 'DELIVERED').astype(int)
                 # Pickup/Forward compliance - check for both 'YES' and 'pass' values
                 kpi_data['pickup_pass'] = kpi_data.get('pickup_sla_compliance', '').isin(['YES', 'pass']).astype(int)
-                kpi_data['forward_pass'] = kpi_data.get('forward_delivery_compliance', '').isin(['YES', 'pass']).astype(int)
+                # Forward pass only counts for delivered packages
+                kpi_data['forward_pass'] = ((kpi_data.get('forward_delivery_compliance', '').isin(['YES', 'pass'])) & (kpi_data['is_delivered'] == 1)).astype(int)
                 kpi_data['fwd_hard_br'] = pd.to_numeric(kpi_data.get('is_forward_hard_breach', 0), errors='coerce').fillna(0).astype(int)
                 kpi_data['rts_hard_br'] = pd.to_numeric(kpi_data.get('is_rts_hard_breach', 0), errors='coerce').fillna(0).astype(int)
                 
                 # Aggregate by dimensions with correct formulas
                 scorecard = kpi_data.groupby(selected_dimensions, dropna=False).agg({
                     'total_cost': 'sum',
-                    'is_delivered': ['sum', 'count'],
+                    'is_delivered': 'sum',
+                    'delivered_count': 'sum',
                     'oc_rfh': 'mean',
                     'oc_fa': 'mean',
                     'rfh_fa': ['mean', 'max'],
@@ -988,13 +991,13 @@ with tab2:
                         scorecard[col] = pd.to_numeric(scorecard[col], errors='coerce').fillna(0).astype(float)
                 
                 # Calculate 13 KPIs with EXACT formulas from KPI sheet
-                scorecard['1_CPP'] = (scorecard['total_cost_sum'] / scorecard['is_delivered_sum'].replace(0, 1)).round(2)
+                scorecard['1_CPP'] = (scorecard['total_cost_sum'] / scorecard['delivered_count_sum'].replace(0, 1)).round(2)
                 scorecard['2_Pickup_%'] = (scorecard['pickup_pass_sum'] / scorecard['has_rfh_sum'].replace(0, 1) * 100).round(2)
                 scorecard['3_OC_to_RFH'] = scorecard['oc_rfh_mean'].round(2)
                 scorecard['4_OC_to_FA'] = scorecard['oc_fa_mean'].round(2)
                 scorecard['5_RFH_to_FA'] = scorecard['rfh_fa_mean'].round(2)
                 scorecard['6_RFH_FA_P90'] = scorecard['rfh_fa_max'].round(2)
-                scorecard['7_Forward_SLA%'] = (scorecard['forward_pass_sum'] / scorecard['is_delivered_sum'].replace(0, 1) * 100).round(2)
+                scorecard['7_Forward_SLA%'] = (scorecard['forward_pass_sum'] / scorecard['delivered_count_sum'].replace(0, 1) * 100).round(2)
                 scorecard['8_Fwd_Breach%'] = (scorecard['fwd_hard_br_sum'] / scorecard['in_transit_sum'].replace(0, 1) * 100).round(2)
                 scorecard['9_RTS_Breach%'] = (scorecard['rts_hard_br_sum'] / scorecard['in_transit_sum'].replace(0, 1) * 100).round(2)
                 scorecard['10_E2E_Breach%'] = ((scorecard['fwd_hard_br_sum'] + scorecard['rts_hard_br_sum']) / scorecard['in_transit_sum'].replace(0, 1) * 100).round(2)
