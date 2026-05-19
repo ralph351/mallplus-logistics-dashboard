@@ -1088,15 +1088,166 @@ with tab2:
             st.metric("🔴🔴 CRITICAL", len(results_df[results_df['risk_tier']=='CRITICAL']))
         
         st.divider()
-        
-        # Enhanced table with drill-down
-        st.markdown("**At-Risk Packages (Click to expand details)**")
-        
-        sorted_df = results_df.sort_values('risk_tier', key=lambda x: x.map({'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3}))
-        
+
+        # ── TABULAR VIEW ──────────────────────────────────────────────────────
+        st.markdown("#### 📋 Tabular View")
+
+        # Build flat display dataframe
+        sorted_df = results_df.sort_values(
+            'risk_tier',
+            key=lambda x: x.map({'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3})
+        )
+
+        # Derive destination region from route string (e.g. "GMA→Luzon 1" → "Luzon 1")
+        sorted_df = sorted_df.copy()
+        sorted_df['destination_region'] = sorted_df['route'].str.split('→').str[-1]
+
+        # Buffer days = SLA remaining (can be negative)
+        display_cols = pd.DataFrame({
+            'Tracking':     sorted_df['tracking'].values,
+            'Route':        sorted_df['route'].values,
+            'Phase':        sorted_df['t3_status'].values,
+            'Days Overdue': sorted_df['days_overdue'].round(2).values,
+            'Buffer Days':  sorted_df['sla_remaining'].round(2).values,
+            'Bottleneck':   sorted_df['bottleneck'].values,
+            'Escalate To':  sorted_df['escalation'].values,
+            'Risk':         sorted_df['risk_tier'].values,
+        })
+
+        # Sort controls
+        sort_col_options = display_cols.columns.tolist()
+        sort_default_idx = sort_col_options.index('Risk') if 'Risk' in sort_col_options else 0
+        tbl_sort_col, tbl_sort_asc, tbl_dl = st.columns([2, 1, 2])
+        with tbl_sort_col:
+            sort_by = st.selectbox("Sort by", sort_col_options, index=sort_default_idx, key='sec_e_sort')
+        with tbl_sort_asc:
+            ascending = st.checkbox("Ascending", value=True, key='sec_e_asc')
+        with tbl_dl:
+            csv_bytes = display_cols.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="⬇️ Export CSV",
+                data=csv_bytes,
+                file_name="at_risk_packages.csv",
+                mime="text/csv",
+                key='sec_e_csv'
+            )
+
+        if sort_by in ['Days Overdue', 'Buffer Days']:
+            display_sorted = display_cols.sort_values(sort_by, ascending=ascending)
+        elif sort_by == 'Risk':
+            risk_order = {'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3}
+            display_sorted = display_cols.copy()
+            display_sorted['_rank'] = display_sorted['Risk'].map(risk_order)
+            display_sorted = display_sorted.sort_values('_rank', ascending=ascending).drop(columns=['_rank'])
+        else:
+            display_sorted = display_cols.sort_values(sort_by, ascending=ascending)
+
+        st.dataframe(
+            display_sorted,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                'Days Overdue': st.column_config.NumberColumn(format="%.2f"),
+                'Buffer Days':  st.column_config.NumberColumn(format="%.2f"),
+                'Risk': st.column_config.TextColumn(),
+            }
+        )
+
+        st.divider()
+
+        # ── HEAT MAP: Region × Micro-Phase ────────────────────────────────────
+        st.markdown("#### 🌡️ Heat Map: Region × Bottleneck Phase")
+        st.caption("Cell value = count of at-risk packages. Color: 🔴 5+ | 🟠 3-4 | 🟡 1-2 | 🟢 0")
+
+        # Define axis labels
+        heatmap_phases = ['MP1 (HO→FM)', 'MP2 (FM Hub)', 'MP3 (FM→Sort)',
+                          'MP4 (Sort)', 'MP5 (Sort→LM)', 'MP6 (LM Hub)',
+                          'MP7 (LM→FA)', 'None']
+        heatmap_regions = ['GMA', 'Luzon 1', 'Luzon 2', 'Luzon 3', 'Luzon 4',
+                           'Visayas 1', 'Visayas 2', 'Visayas 3',
+                           'Mindanao 1', 'Mindanao 2']
+
+        # Map bottleneck string to short phase label
+        phase_label_map = {
+            'HO→FM':   'MP1 (HO→FM)',
+            'FM Hub':  'MP2 (FM Hub)',
+            'FM→Sort': 'MP3 (FM→Sort)',
+            'Sort':    'MP4 (Sort)',
+            'Sort→LM': 'MP5 (Sort→LM)',
+            'LM Hub':  'MP6 (LM Hub)',
+            'LM→FA':   'MP7 (LM→FA)',
+        }
+
+        def parse_phase_label(bottleneck_str):
+            """Extract phase label from strings like 'HO→FM (+3.2h)' """
+            if not bottleneck_str or bottleneck_str == 'None':
+                return 'None'
+            for key, label in phase_label_map.items():
+                if key in bottleneck_str:
+                    return label
+            return 'None'
+
+        hm_df = sorted_df[['destination_region', 'bottleneck']].copy()
+        hm_df['phase_label'] = hm_df['bottleneck'].apply(parse_phase_label)
+
+        # Build pivot: rows=regions, cols=phases, values=counts
+        pivot_data = (
+            hm_df.groupby(['destination_region', 'phase_label'])
+            .size()
+            .reset_index(name='count')
+        )
+        pivot = pivot_data.pivot(index='destination_region', columns='phase_label', values='count').reindex(
+            index=heatmap_regions, columns=heatmap_phases
+        ).fillna(0).astype(int)
+
+        z_values = pivot.values.tolist()
+        text_values = [[str(v) if v > 0 else '' for v in row] for row in z_values]
+
+        # Custom discrete colorscale (0→green, 1-2→yellow, 3-4→orange, 5+→red)
+        # Plotly colorscale uses 0-1 range; max clamp at 5 for colour mapping
+        hm_fig = go.Figure(data=go.Heatmap(
+            z=z_values,
+            x=heatmap_phases,
+            y=heatmap_regions,
+            text=text_values,
+            texttemplate="%{text}",
+            colorscale=[
+                [0.0,  '#2ecc71'],   # 0  → green
+                [0.2,  '#2ecc71'],
+                [0.2,  '#f1c40f'],   # 1-2 → yellow
+                [0.4,  '#f1c40f'],
+                [0.4,  '#e67e22'],   # 3-4 → orange
+                [0.6,  '#e67e22'],
+                [0.6,  '#e74c3c'],   # 5+  → red
+                [1.0,  '#c0392b'],
+            ],
+            zmin=0,
+            zmax=max(5, int(pivot.values.max()) if pivot.values.max() > 0 else 5),
+            showscale=True,
+            colorbar=dict(
+                title='Count',
+                tickvals=[0, 1, 2, 3, 4, 5],
+                ticktext=['0', '1', '2', '3', '4', '5+'],
+            ),
+            hovertemplate='Region: %{y}<br>Phase: %{x}<br>Count: %{z}<extra></extra>',
+        ))
+        hm_fig.update_layout(
+            title='At-Risk Packages: Region × Bottleneck Phase',
+            xaxis_title='Bottleneck Phase',
+            yaxis_title='Destination Region',
+            height=420,
+            margin=dict(l=20, r=20, t=50, b=20),
+        )
+        st.plotly_chart(hm_fig, use_container_width=True)
+
+        st.divider()
+
+        # ── EXPANDABLE DETAIL ROWS ─────────────────────────────────────────────
+        st.markdown("**📦 At-Risk Packages — Drill-Down Details**")
+
         for idx, pkg in sorted_df.iterrows():
             risk_icon = {'LOW': '🟢', 'MEDIUM': '🟡', 'HIGH': '🔴', 'CRITICAL': '🔴🔴'}[pkg['risk_tier']]
-            
+
             with st.expander(f"{risk_icon} {pkg['tracking']} | {pkg['route']} | {pkg['t3_status']} | Days Overdue: {pkg['days_overdue']:.1f}"):
                 col1, col2, col3 = st.columns(3)
                 with col1:
@@ -1105,7 +1256,7 @@ with tab2:
                     st.metric("Bottleneck Phase", pkg['bottleneck'])
                 with col3:
                     st.metric("Escalate To", pkg['escalation'])
-                
+
                 st.markdown(f"**Action Required:** Contact **{pkg['escalation']}** - {pkg['bottleneck']}")
                 st.markdown(f"**Status:** {pkg['t3_status']} | **Risk:** {pkg['risk_tier']}")
     else:
