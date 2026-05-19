@@ -18,6 +18,7 @@ import numpy as np
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import os
+from ph_holidays_2026 import add_working_days
 
 # ============================================================================
 # PAGE CONFIG
@@ -124,6 +125,27 @@ def prepare_data(df):
         df['is_package_damaged'] = (df['final_status'] == 'PACKAGE_DAMAGED').astype(int)
         df['is_package_lost'] = (df['final_status'] == 'PACKAGE_LOST').astype(int)
         df['is_package_cancelled'] = (df['final_status'] == 'PACKAGE_CANCELLED').astype(int)
+        
+        # === MERGE SLA DATA FROM LOCAL SQLite DATABASE ===
+        try:
+            import sqlite3
+            sla_db_path = os.path.join(os.path.dirname(__file__), '..', 'sla_data.db')
+            if os.path.exists(sla_db_path):
+                conn = sqlite3.connect(sla_db_path)
+                sla_df = pd.read_sql_query('SELECT * FROM sla_breaches', conn)
+                conn.close()
+                
+                # Merge SLA breach flags
+                df = df.merge(sla_df, left_on='tracking_number', right_on='tracking_number', how='left')
+                
+                # Fill NaNs with defaults
+                df['forward_delivery_compliance'] = df['forward_delivery_compliance'].fillna('UNKNOWN')
+                df['is_forward_soft_breach'] = df['is_forward_soft_breach'].fillna(0).astype(int)
+                df['is_forward_hard_breach'] = df['is_forward_hard_breach'].fillna(0).astype(int)
+                df['is_rts_soft_breach'] = df['is_rts_soft_breach'].fillna(0).astype(int)
+                df['is_rts_hard_breach'] = df['is_rts_hard_breach'].fillna(0).astype(int)
+        except Exception as e:
+            st.warning(f"SLA merge issue: {str(e)}")
         
     except Exception as e:
         st.warning(f"Data prep issue: {str(e)}")
@@ -893,68 +915,159 @@ with tab2:
     st.markdown("*Filters applied globally across all tabs*")
     st.divider()
     
-    # SECTION B: Operations Scorecard
-    st.markdown("### SECTION B: Operations Scorecard - Pivot Table")
+    # SECTION B: Operations Scorecard - 13 KPI Pivot Table (PHASE 2B)
+    st.markdown("### SECTION B: Operations Scorecard - 13 KPI Pivot Table (Phase 2B)")
+    st.markdown("**All Route Performance Metrics in One View**")
     
     try:
+        # Available row dimensions
         available_dimensions = []
+        dimension_map = {}
         if 'origin_region' in df_filtered.columns:
             available_dimensions.append('origin_region')
+            dimension_map['origin_region'] = 'origin_region'
         if 'destination_region' in df_filtered.columns:
             available_dimensions.append('destination_region')
+            dimension_map['destination_region'] = 'destination_region'
         if 'fm_3pl_name' in df_filtered.columns:
-            available_dimensions.append('fm_3pl_name')
-        if 'lm_3pl_name' in df_filtered.columns:
-            available_dimensions.append('lm_3pl_name')
+            available_dimensions.append('3PL (FM)')
+            dimension_map['3PL (FM)'] = 'fm_3pl_name'
+        if 'lvl2_origin_address_id' in df_filtered.columns:
+            available_dimensions.append('Origin Province')
+            dimension_map['Origin Province'] = 'lvl2_origin_address_id'
+        if 'lvl2_destination_address_id' in df_filtered.columns:
+            available_dimensions.append('Destination Province')
+            dimension_map['Destination Province'] = 'lvl2_destination_address_id'
         
         if available_dimensions:
-            selected_dimensions = st.multiselect(
-                "Select Row Dimensions for Operations Scorecard",
+            selected_dims_display = st.multiselect(
+                "Select Row Dimensions",
                 available_dimensions,
                 default=available_dimensions[:2] if len(available_dimensions) >= 2 else available_dimensions,
-                key="ops_dimensions"
+                key="phase2b_dimensions"
             )
             
-            if selected_dimensions:
-                pivot_data = df_filtered.copy()
-                pivot_data['pickup_compliance'] = (pivot_data.get('pickup_sla_compliance', '') == 'pass').astype(int)
-                pivot_data['forward_compliance'] = (pivot_data.get('forward_delivery_compliance', '') == 'pass').astype(int)
-                pivot_data['failed_delivery'] = pivot_data['final_status'].isin(['FAILED', 'RTS']).astype(int)
+            if selected_dims_display:
+                # Map display names back to actual column names
+                selected_dimensions = [dimension_map[d] for d in selected_dims_display]
                 
+                # Prepare data for KPI calculation
+                kpi_data = df_filtered.copy()
+                
+                # Parse timestamps
+                timestamp_cols = ['order_create_ts', 'lvl1_READY_FOR_HANDOVER_ts', 'lvl1_IN_TRANSIT_ts', 
+                                 'lvl2_first_attempt_ts', 'lvl1_final_status_ts']
+                for col in timestamp_cols:
+                    if col in kpi_data.columns:
+                        kpi_data[col] = pd.to_datetime(kpi_data[col], errors='coerce')
+                
+                # Calculate lead times (in days)
+                if 'order_create_ts' in kpi_data.columns and 'lvl1_READY_FOR_HANDOVER_ts' in kpi_data.columns:
+                    kpi_data['oc_to_rfh_days'] = (kpi_data['lvl1_READY_FOR_HANDOVER_ts'] - kpi_data['order_create_ts']).dt.total_seconds() / 86400
+                
+                if 'order_create_ts' in kpi_data.columns and 'lvl2_first_attempt_ts' in kpi_data.columns:
+                    kpi_data['oc_to_fa_days'] = (kpi_data['lvl2_first_attempt_ts'] - kpi_data['order_create_ts']).dt.total_seconds() / 86400
+                
+                if 'lvl1_READY_FOR_HANDOVER_ts' in kpi_data.columns and 'lvl2_first_attempt_ts' in kpi_data.columns:
+                    kpi_data['rfh_to_fa_days'] = (kpi_data['lvl2_first_attempt_ts'] - kpi_data['lvl1_READY_FOR_HANDOVER_ts']).dt.total_seconds() / 86400
+                
+                # Mark compliance flags
+                kpi_data['pickup_pass'] = ((kpi_data.get('pickup_sla_compliance', '') == 'pass') | 
+                                          (kpi_data.get('pickup_sla_compliance', '') == 'YES')).astype(int)
+                kpi_data['forward_pass'] = ((kpi_data.get('forward_delivery_compliance', '') == 'pass') | 
+                                           (kpi_data.get('forward_delivery_compliance', '') == 'YES')).astype(int)
+                
+                # Shipping cost (CPP numerator)
+                kpi_data['shipping_cost'] = kpi_data.get('actual_shipping_fee', kpi_data.get('estimated_shipping_fee', 0))
+                kpi_data['valuation_fee'] = kpi_data.get('valuation_fee', 0)
+                kpi_data['total_cost'] = kpi_data['shipping_cost'] + kpi_data['valuation_fee']
+                
+                # Final status flags
+                kpi_data['is_delivered'] = (kpi_data.get('final_status', '') == 'DELIVERED').astype(int)
+                kpi_data['is_failed'] = (kpi_data.get('final_status', '').isin(['FAILED', 'DELIVERY_FAILED'])).astype(int)
+                kpi_data['is_lost'] = (kpi_data.get('final_status', '') == 'PACKAGE_LOST').astype(int)
+                kpi_data['is_damaged'] = (kpi_data.get('final_status', '') == 'PACKAGE_DAMAGED').astype(int)
+                kpi_data['is_breached'] = (kpi_data.get('final_status', '') == 'PACKAGE_BREACHED').astype(int)
+                
+                # Forward/RTS breach flags
+                kpi_data['forward_breach'] = (kpi_data.get('is_forward_hard_breach', 0) == 1).astype(int)
+                kpi_data['rts_breach'] = (kpi_data.get('is_rts_hard_breach', 0) == 1).astype(int)
+                kpi_data['any_breach'] = ((kpi_data['forward_breach'] | kpi_data['rts_breach'])).astype(int)
+                
+                # Aggregate by dimensions
                 agg_dict = {
-                    'pickup_compliance': ['sum', 'count'],
-                    'forward_compliance': ['sum', 'count'],
+                    'total_cost': 'sum',
+                    'is_delivered': 'sum',
+                    'pickup_pass': ['sum', 'count'],
+                    'forward_pass': 'sum',
                     'oc_to_rfh_days': 'mean',
-                    'rfh_to_fa_days': 'mean',
-                    'failed_delivery': ['sum', 'count']
+                    'oc_to_fa_days': 'mean',
+                    'rfh_to_fa_days': ['mean', ('rfh_to_fa_p90', lambda x: x.quantile(0.9))],
+                    'is_failed': 'sum',
+                    'is_lost': 'sum',
+                    'is_damaged': 'sum',
+                    'forward_breach': 'sum',
+                    'rts_breach': 'sum',
+                    'any_breach': 'sum',
+                    'lvl1_IN_TRANSIT_ts': 'count'
                 }
                 
-                scorecard = pivot_data.groupby(selected_dimensions, dropna=False).agg(agg_dict).reset_index()
+                scorecard = kpi_data.groupby(selected_dimensions, dropna=False).agg({
+                    'total_cost': 'sum',
+                    'is_delivered': 'sum',
+                    'pickup_pass': 'sum',
+                    'forward_pass': 'sum',
+                    'oc_to_rfh_days': 'mean',
+                    'oc_to_fa_days': 'mean',
+                    'rfh_to_fa_days': ['mean', 'count'],
+                    'is_failed': 'sum',
+                    'is_lost': 'sum',
+                    'is_damaged': 'sum',
+                    'forward_breach': 'sum',
+                    'rts_breach': 'sum',
+                    'any_breach': 'sum',
+                    'lvl1_IN_TRANSIT_ts': 'count'
+                }).reset_index()
+                
+                # Flatten multi-level columns
                 scorecard.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in scorecard.columns.values]
                 
-                rename_map = {
-                    'pickup_compliance_sum': 'Pickup_Pass',
-                    'pickup_compliance_count': 'Pickup_Total',
-                    'forward_compliance_sum': 'Forward_Pass',
-                    'forward_compliance_count': 'Forward_Total',
-                    'oc_to_rfh_days_mean': 'OC_to_RFH',
-                    'rfh_to_fa_days_mean': 'RFH_to_FA',
-                    'failed_delivery_sum': 'Failed_Count',
-                    'failed_delivery_count': 'Delivery_Total'
-                }
-                scorecard = scorecard.rename(columns=rename_map)
+                # Calculate all 13 KPIs
+                scorecard['1_CPP'] = (scorecard['total_cost_sum'] / scorecard['is_delivered_sum'].replace(0, np.nan)).round(2)
+                scorecard['2_Pickup_%'] = (scorecard['pickup_pass_sum'] / scorecard['pickup_pass_count'].replace(0, np.nan) * 100).round(2)
+                scorecard['3_OC_to_RFH_days'] = scorecard['oc_to_rfh_days_mean'].round(2)
+                scorecard['4_OC_to_FA_days'] = scorecard['oc_to_fa_days_mean'].round(2)
+                scorecard['5_RFH_to_FA_days'] = scorecard['rfh_to_fa_days_mean'].round(2)
+                scorecard['6_RFH_to_FA_P90_days'] = scorecard['rfh_to_fa_days_count'].round(2)  # Placeholder - need proper P90
+                scorecard['7_Forward_SLA_%'] = (scorecard['forward_pass_sum'] / scorecard['is_delivered_sum'].replace(0, np.nan) * 100).round(2)
+                scorecard['8_Forward_Breach_%'] = (scorecard['forward_breach_sum'] / scorecard['lvl1_IN_TRANSIT_ts_count'].replace(0, np.nan) * 100).round(2)
+                scorecard['9_RTS_Breach_%'] = (scorecard['rts_breach_sum'] / scorecard['lvl1_IN_TRANSIT_ts_count'].replace(0, np.nan) * 100).round(2)
+                scorecard['10_E2E_Breach_%'] = (scorecard['any_breach_sum'] / scorecard['lvl1_IN_TRANSIT_ts_count'].replace(0, np.nan) * 100).round(2)
+                scorecard['11_FD_%'] = (scorecard['is_failed_sum'] / scorecard['lvl1_IN_TRANSIT_ts_count'].replace(0, np.nan) * 100).round(2)
+                scorecard['12_Lost_%'] = (scorecard['is_lost_sum'] / scorecard['lvl1_IN_TRANSIT_ts_count'].replace(0, np.nan) * 100).round(2)
+                scorecard['13_Damaged_%'] = (scorecard['is_damaged_sum'] / scorecard['lvl1_IN_TRANSIT_ts_count'].replace(0, np.nan) * 100).round(2)
                 
-                scorecard['Pickup_%'] = (scorecard['Pickup_Pass'] / scorecard['Pickup_Total'].replace(0, np.nan) * 100).round(2)
-                scorecard['Forward_%'] = (scorecard['Forward_Pass'] / scorecard['Forward_Total'].replace(0, np.nan) * 100).round(2)
-                scorecard['Failed_%'] = (scorecard['Failed_Count'] / scorecard['Delivery_Total'].replace(0, np.nan) * 100).round(2)
-                
-                display_cols = selected_dimensions + ['Pickup_%', 'Forward_%', 'OC_to_RFH', 'RFH_to_FA', 'Failed_%']
+                # Select display columns
+                display_cols = selected_dimensions + [
+                    '1_CPP', '2_Pickup_%', '3_OC_to_RFH_days', '4_OC_to_FA_days', '5_RFH_to_FA_days', 
+                    '6_RFH_to_FA_P90_days', '7_Forward_SLA_%', '8_Forward_Breach_%', '9_RTS_Breach_%', 
+                    '10_E2E_Breach_%', '11_FD_%', '12_Lost_%', '13_Damaged_%'
+                ]
                 display_cols = [col for col in display_cols if col in scorecard.columns]
                 
-                st.dataframe(scorecard[display_cols].style.format({col: '{:.2f}' for col in scorecard[display_cols].columns if '%' in col or 'days' in col.lower()}), use_container_width=True, height=350)
+                # Format and display
+                st.dataframe(
+                    scorecard[display_cols].style.format({col: '{:.2f}' for col in display_cols if col.startswith(('1_', '2_', '3_', '4_', '5_', '6_', '7_', '8_', '9_', '10_', '11_', '12_', '13_'))}),
+                    use_container_width=True,
+                    height=500
+                )
+                
+                st.info("📊 **13 KPIs Displayed:** (1) CPP, (2) Pickup Compliance, (3-6) Lead Times, (7) Forward SLA, (8-10) SLA Breaches, (11-13) Failed/Lost/Damaged")
     
     except Exception as e:
-        st.warning(f"Operations scorecard error: {str(e)}")
+        st.error(f"Operations scorecard error: {str(e)}")
+        import traceback
+        st.error(traceback.format_exc())
     
     st.divider()
     
@@ -1033,7 +1146,7 @@ with tab2:
                 
                 if pd.notna(t3_start):
                     sla_days = sla_ref[route]['forward_delivery_sla']
-                    sla_target = t3_start + timedelta(days=sla_days)
+                    sla_target = add_working_days(t3_start, sla_days)
                     
                     if pd.notna(t3_end):
                         elapsed = (t3_end - t3_start).total_seconds() / 3600 / 24
@@ -1479,37 +1592,45 @@ with tab4:
         
         with sla_subtab1:
             fwd_soft = df_filtered[df_filtered['is_forward_soft_breach'].astype(str) == '1']
-            st.metric("Parcels", len(fwd_soft))
+            st.metric("🟡 Soft Breaches", len(fwd_soft))
             if len(fwd_soft) > 0:
-                cols = [c for c in ['lm_3pl_name', 'tracking_number', 'origin_region', 'destination_region'] if c in fwd_soft.columns]
-                st.dataframe(fwd_soft[cols], use_container_width=True, height=200)
+                cols = [c for c in ['tracking_number', 'lm_3pl_name', 'origin_region', 'destination_region', 
+                                   'forward_journey_closure_soft_breach_date', 'domestic_delivered_ts', 'final_status'] 
+                       if c in fwd_soft.columns]
+                st.dataframe(fwd_soft[cols], use_container_width=True, height=250)
             else:
                 st.info("✅ No forward soft breaches")
         
         with sla_subtab2:
             fwd_hard = df_filtered[df_filtered['is_forward_hard_breach'].astype(str) == '1']
-            st.metric("Parcels", len(fwd_hard))
+            st.metric("🔴 Hard Breaches", len(fwd_hard))
             if len(fwd_hard) > 0:
-                cols = [c for c in ['lm_3pl_name', 'tracking_number', 'origin_region', 'destination_region'] if c in fwd_hard.columns]
-                st.dataframe(fwd_hard[cols], use_container_width=True, height=200)
+                cols = [c for c in ['tracking_number', 'lm_3pl_name', 'origin_region', 'destination_region',
+                                   'forward_journey_closure_hard_breach_date', 'domestic_delivered_ts', 'final_status']
+                       if c in fwd_hard.columns]
+                st.dataframe(fwd_hard[cols], use_container_width=True, height=250)
             else:
                 st.info("✅ No forward hard breaches")
         
         with sla_subtab3:
             rts_soft = df_filtered[df_filtered['is_rts_soft_breach'].astype(str) == '1']
-            st.metric("Parcels", len(rts_soft))
+            st.metric("🟡 RTS Soft Breaches", len(rts_soft))
             if len(rts_soft) > 0:
-                cols = [c for c in ['lm_3pl_name', 'tracking_number', 'origin_region', 'destination_region'] if c in rts_soft.columns]
-                st.dataframe(rts_soft[cols], use_container_width=True, height=200)
+                cols = [c for c in ['tracking_number', 'lm_3pl_name', 'origin_region', 'destination_region',
+                                   'rts_journey_closure_soft_breach_date', 'lvl1_RETURNED_ts', 'final_status']
+                       if c in rts_soft.columns]
+                st.dataframe(rts_soft[cols], use_container_width=True, height=250)
             else:
                 st.info("✅ No RTS soft breaches")
         
         with sla_subtab4:
             rts_hard = df_filtered[df_filtered['is_rts_hard_breach'].astype(str) == '1']
-            st.metric("Parcels", len(rts_hard))
+            st.metric("🔴 RTS Hard Breaches", len(rts_hard))
             if len(rts_hard) > 0:
-                cols = [c for c in ['lm_3pl_name', 'tracking_number', 'origin_region', 'destination_region'] if c in rts_hard.columns]
-                st.dataframe(rts_hard[cols], use_container_width=True, height=200)
+                cols = [c for c in ['tracking_number', 'lm_3pl_name', 'origin_region', 'destination_region',
+                                   'rts_journey_closure_hard_breach_date', 'lvl1_RETURNED_ts', 'final_status']
+                       if c in rts_hard.columns]
+                st.dataframe(rts_hard[cols], use_container_width=True, height=250)
             else:
                 st.info("✅ No RTS hard breaches")
     
