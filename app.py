@@ -903,6 +903,9 @@ with tab2:
         if 'fm_3pl_name' in df_filtered.columns:
             available_dimensions.append('3PL (FM)')
             dimension_map['3PL (FM)'] = 'fm_3pl_name'
+        if 'lm_3pl_name' in df_filtered.columns:
+            available_dimensions.append('3PL (LM)')
+            dimension_map['3PL (LM)'] = 'lm_3pl_name'
         if 'lvl2_origin_address_id' in df_filtered.columns:
             available_dimensions.append('Origin Province')
             dimension_map['Origin Province'] = 'lvl2_origin_address_id'
@@ -950,8 +953,9 @@ with tab2:
                 kpi_data['is_lost'] = (kpi_data.get('final_status', '') == 'PACKAGE_LOST').astype(int)
                 kpi_data['is_damaged'] = (kpi_data.get('final_status', '') == 'PACKAGE_DAMAGED').astype(int)
                 kpi_data['in_transit'] = kpi_data['lvl1_IN_TRANSIT_ts'].notna().astype(int)
-                kpi_data['pickup_pass'] = (kpi_data.get('pickup_sla_compliance', '') == 'YES').astype(int)
-                kpi_data['forward_pass'] = (kpi_data.get('forward_delivery_compliance', '') == 'YES').astype(int)
+                # Pickup/Forward compliance - check for both 'YES' and 'pass' values
+                kpi_data['pickup_pass'] = kpi_data.get('pickup_sla_compliance', '').isin(['YES', 'pass']).astype(int)
+                kpi_data['forward_pass'] = kpi_data.get('forward_delivery_compliance', '').isin(['YES', 'pass']).astype(int)
                 kpi_data['fwd_hard_br'] = pd.to_numeric(kpi_data.get('is_forward_hard_breach', 0), errors='coerce').fillna(0).astype(int)
                 kpi_data['rts_hard_br'] = pd.to_numeric(kpi_data.get('is_rts_hard_breach', 0), errors='coerce').fillna(0).astype(int)
                 
